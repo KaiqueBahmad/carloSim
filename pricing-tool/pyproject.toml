@@ -1,0 +1,10 @@
+[project]
+name = "pricing-tool"
+version = "0.1.0"
+description = "Simulador de retorno para uma plataforma fictícia de agendamento veterinário"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "py-expression-eval>=0.3.14",
+    "pyside6>=6.11.2",
+]
