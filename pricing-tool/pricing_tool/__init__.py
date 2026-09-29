@@ -1,1 +1,1 @@
-"""Simulador de retorno da plataforma de agendamento para clinicas veterinarias."""
+"""Simulador de retorno de uma agência de marketing."""

@@ -40,7 +40,7 @@ MODO_VISUALIZACAO = "visualizacao"
 class Janela(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Simulador de Retorno — Agendamento para Clínicas Veterinárias")
+        self.setWindowTitle("Simulador de Retorno — Agência de Marketing")
         self.resize(1440, 900)
 
         escuro = aplicar_tema(QApplication.instance())
@@ -93,7 +93,7 @@ class Janela(QMainWindow):
         self.acao_sorte.setShortcut(QKeySequence("F6"))
         self.acao_sorte.setToolTip(
             "Roda a simulação N vezes sorteando churn, conversão e inadimplência "
-            "clínica por clínica, e diz quantas rodadas bateram a sua meta"
+            "cliente por cliente, e diz quantas rodadas bateram a sua meta"
         )
         self.acao_sorte.triggered.connect(self.calcular_sorte)
 

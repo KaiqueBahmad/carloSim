@@ -1,10 +1,11 @@
-# Simulador de Retorno — Agendamento para Clínicas Veterinárias
+# Simulador de Retorno — Agência de Marketing
 
-App desktop (PySide6) que projeta, mês a mês, a evolução de uma plataforma de agendamento
-para clínicas veterinárias, uma empresa **fictícia** usada como cenário de exemplo. A receita
-é híbrida: **transacional** (taxa fixa + % por atendimento agendado) e **recorrente**
-(mensalidade por clínica). Tudo roda local: sem backend, sem rede, com o JSON exportado
-como único artefato de persistência.
+App desktop (PySide6) que projeta, mês a mês, a evolução de uma agência de marketing digital,
+uma empresa **fictícia** usada como cenário de exemplo. A receita vem de três fontes:
+**retainer** mensal, **fee de gestão de mídia** (percentual sobre a verba do cliente) e
+**taxa de setup** cobrada uma única vez. O custo dominante é a **equipe**, dimensionada pelas
+horas que o escopo e a verba de cada cliente exigem. Tudo roda local: sem backend, sem rede,
+com o JSON exportado como único artefato de persistência.
 
 ## Rodar
 
@@ -38,6 +39,33 @@ Ao importar um arquivo que já tem `resultados`, o app pergunta como abrir:
 
 Se `resultados` estiver ausente ou nulo, o modo de re-simulação é forçado.
 
+## Como o modelo funciona
+
+Cada mês, a carteira é dividida em **cohorts** (clientes que entraram no mesmo mês). Para cada
+cohort, o **escopo em execução** (`curva_escopo`, de 0 a 100% do escopo pleno) escala tudo de uma vez:
+
+- o **retainer** faturado (`retainer_mensal_pleno × escopo`, com desconto durante o piloto);
+- a **verba de mídia** gerenciada (`verba_midia_media × escopo × sazonalidade`), da qual a
+  agência recebe apenas o **fee** — a verba em si é do cliente e não entra na receita;
+- as **horas** de trabalho: `horas_base_cliente_mes × escopo` mais `horas_por_10mil_midia`
+  para cada R$ 10 mil de verba sob gestão.
+
+Somadas as horas de todos os cohorts, a **equipe** é dimensionada por
+`ceil(horas ÷ (horas_produtivas × utilização_alvo))` — profissionais inteiros. É a interação
+central de uma agência: a receita cresce de forma suave, mas o custo de equipe sobe em
+**degraus**, e a margem oscila conforme a carteira se aproxima de cada nova contratação.
+
+Outras interações que o modelo captura:
+
+- **Verba alta é dupla:** rende mais fee, mas também consome mais horas de otimização.
+- **Sazonalidade da verba** (Black Friday, Natal) infla fee e horas no pico, podendo
+  forçar contratação antes da hora.
+- **Piloto:** nos primeiros meses o retainer sai com desconto, mas a entrega é a mesma;
+  ao fim do piloto, quem não converte sai da carteira.
+- **Setup** entra só no mês de ativação do cliente, dando fôlego ao caixa no início do contrato.
+- **Comercial** é remunerado só por comissão sobre a receita **recebida**, e o número de
+  comerciais é a alavanca de aquisição (`c` na expressão de novos clientes).
+
 ## Preset padrão
 
 **Definir como padrão** grava os parâmetros da tela em `padrao.json`, na raiz da ferramenta —
@@ -51,81 +79,85 @@ O preset de fábrica é deliberadamente **conservador**, em 12 meses:
 | Parâmetro | Valor |
 |---|---|
 | Horizonte | 12 meses |
-| Vendedores | tabela por mês — 2 desde o início |
-| Aquisição | expressão `2 * v` — duas clínicas por vendedor por mês |
-| Churn mensal | 3% |
-| Consultórios por clínica | 4 |
-| Vagas por consultório/dia · dias/mês | 16 · 26 |
-| Curva de maturação | expressão `min(0.3, 0.05 * t)` — regime de 30% no 6º mês |
-| Sazonalidade | 0,90 a 1,10 (mais forte no fim do ano) |
-| Valor médio por atendimento | R$ 180 |
-| Taxa por atendimento | R$ 1,50 + 2% |
-| Mensalidade · trial · conversão | R$ 149 · 1 mês · 60% |
-| Custo operacional | expressão `4500` — estrutura enxuta e plana |
-| Processamento | 0% do volume — o pagamento cai direto na conta da clínica |
-| Inadimplência | 4% ao mês sobre a fatura |
-| Comissão do vendedor | 20% da receita recebida |
+| Comerciais | tabela por mês — 2 desde o início |
+| Aquisição | expressão `1 * c` — um contrato fechado por comercial por mês |
+| Churn mensal | 4% |
+| Retainer mensal (escopo pleno) | R$ 7.500 |
+| Taxa de setup | R$ 2.500, cobrada uma vez |
+| Verba de mídia gerenciada · fee | R$ 15.000 por cliente/mês · 12% |
+| Rampa de escopo | expressão `min(1, 0.5 + 0.1 * t)` — 60% no 1º mês, pleno no 5º |
+| Sazonalidade da verba | 0,80 (jan) a 1,40 (nov) |
+| Piloto · desconto · conversão | 1 mês · 50% · 70% |
+| Horas por cliente/mês (escopo pleno) | 45 h + 4 h por R$ 10 mil de verba |
+| Horas produtivas · utilização alvo | 140 h por profissional/mês · 75% |
+| Custo mensal por profissional | R$ 7.000 |
+| Terceiros | 10% do retainer |
+| Impostos | 8% da receita |
+| Inadimplência | 3% ao mês sobre a fatura |
+| Comissão comercial | 8% da receita recebida |
+| Custo de estrutura | expressão `9000 + 120 * a` — base fixa mais R$ 120 por cliente ativo |
 
-Nesse cenário o resultado acumulado fica negativo nos três primeiros meses e o payback chega
-no **mês 4**. Em 12 meses: R$ 252,0 mil de receita, R$ 48,4 mil de comissão e R$ 139,6 mil de
-resultado, com cerca de 22 clínicas ativas no fim. Cada vendedor leva R$ 24,2 mil no período —
+Partindo de setembro, o resultado acumulado fica negativo nos primeiros seis meses e o payback
+chega no **mês 7**. Em 12 meses: R$ 705,7 mil de receita (R$ 513,8 mil de retainer, R$ 131,9 mil
+de fee de mídia e R$ 60,0 mil de setup), R$ 301,0 mil de custo de equipe e R$ 101,7 mil de
+resultado — margem líquida de 14,4%. A carteira termina com 12 clientes e uma equipe de 6
+profissionais, com 61% de utilização média. Cada comercial leva R$ 27,4 mil no período —
 número magro que o modelo mostra de propósito.
 
 ## Entrada de dados
 
 Fora dos três campos de `expressao`, nenhum input é texto livre: percentuais e valores
 têm spin box com mínimo e máximo, o mês inicial é um seletor mês/ano, e a escolha entre
-lista e expressão é por radio. As listas por mês (vendedores, aquisição e custo) são geradas a partir do
-mês inicial e do horizonte, então nunca têm lacuna nem mês fora de ordem.
+lista e expressão é por radio. As listas por mês (comerciais, aquisição e custo) são geradas a
+partir do mês inicial e do horizonte, então nunca têm lacuna nem mês fora de ordem.
 
 As expressões seguem o padrão [expr-eval](https://github.com/silentmatt/expr-eval)
 (avaliadas por [`py-expression-eval`](https://pypi.org/project/py-expression-eval/)) e são
 validadas enquanto você digita:
 
-- **Vendedores** — variável `n` (mês da simulação). Arredondado e nunca negativo.
-- **Aquisição** — variáveis `n` (mês da simulação) e `v` (vendedores ativos no mês). É por
-  `v` que o time vira alavanca explícita: `2 * v` são duas clínicas por vendedor por mês, e
-  contratar mais gente é mexer na tabela de vendedores, não reescrever a fórmula. O resultado
-  é arredondado para o inteiro mais próximo e nunca fica negativo.
-- **Maturação** — variável `t` (mês desde a ativação da clínica, a partir de 1). O resultado
-  é limitado entre 0 e 1.
-- **Custo operacional** — variáveis `n` (mês da simulação) e `a` (clínicas ativas no mês). O
-  resultado nunca fica negativo. É aqui que entram os degraus de estrutura, que uma soma de
-  custo fixo com custo por clínica não consegue representar:
-  `8000 + 2500 * ceil(a / 50)` contrata um suporte a cada 50 clínicas, e
-  `if(n > 6, 20000, 8000)` sobe a estrutura depois do sexto mês.
+- **Comerciais** — variável `n` (mês da simulação). Arredondado e nunca negativo.
+- **Aquisição** — variáveis `n` (mês da simulação) e `c` (comerciais ativos no mês). É por
+  `c` que o time comercial vira alavanca explícita: `2 * c` são dois contratos por comercial
+  por mês, e contratar mais gente é mexer na tabela de comerciais, não reescrever a fórmula.
+  O resultado é arredondado para o inteiro mais próximo e nunca fica negativo.
+- **Escopo** — variável `t` (mês desde a ativação do cliente, a partir de 1). O resultado é
+  limitado entre 0 e 1.
+- **Custo de estrutura** — variáveis `n` (mês da simulação) e `a` (clientes ativos no mês). O
+  resultado nunca fica negativo. É aqui que entram aluguel, ferramentas e o marketing da
+  própria agência, inclusive em degraus que uma soma de custo fixo com custo por cliente não
+  representa: `9000 + 2500 * ceil(a / 15)` abre uma nova frente de gestão a cada 15 clientes, e
+  `if(n > 6, 20000, 9000)` sobe a estrutura depois do sexto mês.
 
 Essa normalização é sempre aplicada, mesmo que a fórmula já use `min`/`max`.
 
 ## Inadimplência
 
-O pagamento do atendimento cai direto na conta da clínica; a plataforma fatura comissão e
-mensalidade no fim do mês. Isso zera o custo de processamento — a taxa da operadora de
-pagamento é da clínica — mas cria risco de crédito, e é isso que a `taxa_inadimplencia` modela.
-
-A clínica inadimplente operou o mês inteiro, então o mês tem os dois efeitos:
+O cliente consome o mês inteiro de entrega antes de ser cobrado. Se não paga, o mês tem os
+dois efeitos:
 
 - a **receita faturada** daquela fatia vira perda, lançada nos custos (`perda_inadimplencia`);
-- a clínica **perde o acesso à agenda online e sai da base**, contada em `clinicas_inadimplentes`
-  e fora da simulação a partir do mês seguinte.
+- o **contrato é encerrado**: o cliente sai da carteira, contado em `clientes_inadimplentes`,
+  e fica fora da simulação a partir do mês seguinte.
 
 O retorno de quem quita a dívida não é modelado: a saída é definitiva, como o churn. Por
-isso a vida média do LTV é `1 ÷ (churn + inadimplência)` — a base esvazia pelos dois lados.
+isso a vida média do LTV é `1 ÷ (churn + inadimplência)` — a carteira esvazia pelos dois lados.
 
-O segundo efeito pesa muito mais que o primeiro: além da fatura não paga, a base final
-encolhe e leva junto a receita de todos os meses seguintes.
+A inadimplência é apurada **por cohort**, não sobre a receita média da carteira — cliente
+novo, em escopo reduzido e piloto com desconto, fatura muito menos que cliente maduro, e
+cobrar a média superestima a perda. O efeito mais caro não é a fatura em si, e sim a
+carteira menor: ela leva junto a receita de todos os meses seguintes.
 
-## Comissão do vendedor
+## Comissão comercial
 
-Os vendedores não têm fixo: ganham `comissao_vendedor_percentual` sobre a receita
-**recebida** das clínicas que trouxeram, enquanto a clínica continuar na carteira deles.
-Por isso a comissão incide depois do desconto de inadimplência — fatura que não foi paga
+Os comerciais não têm fixo: ganham `comissao_comercial_percentual` sobre a receita
+**recebida** dos clientes que trouxeram, enquanto o cliente continuar na carteira. Por
+isso a comissão incide depois do desconto de inadimplência — fatura que não foi paga
 não comissiona ninguém.
 
-Não há bounty por clínica assinada: sem taxa de implantação, pagar na assinatura premia
-volume em vez do acompanhamento contínuo, que é o trabalho que sustenta a recorrência.
-Não existe custo de aquisição por clínica: gasto de marketing, se houver, é mensal e vai
-na expressão de custo operacional.
+Não há bounty por contrato assinado: com um setup único e pequeno diante do retainer, pagar na
+assinatura premia volume em vez do relacionamento contínuo, que é o que sustenta a recorrência.
+Não existe custo de aquisição por cliente: gasto de marketing próprio, se houver, é mensal
+e vai na expressão de custo de estrutura.
 
 Não há piso nem fixo: a comissão é a remuneração inteira, o que deixa a receita dos
 primeiros meses bem magra. O modelo não esconde isso, e é informação para levar à mesa
@@ -133,25 +165,22 @@ antes de fechar o acordo.
 
 ## Os dois motores
 
-O laço mensal é um só; o que muda entre os modos é **como a base perde clínicas**, isolado
+O laço mensal é um só; o que muda entre os modos é **como a carteira perde clientes**, isolado
 em `motor.Continua` e `motor.Sorteio`:
 
-- **Determinístico** (`Continua`) — sai a fração exata. Com 10 clínicas e churn de 3%, ficam
-  9,7. É o modo de todos os botões normais: mesmos parâmetros, sempre o mesmo número.
-- **Com dados** (`Sorteio`) — cada clínica do cohort é um ensaio de Bernoulli, sorteado por
-  binomial. As clínicas ficam inteiras: 10 clínicas viram 10 ou 9, nunca 9,7.
+- **Determinístico** (`Continua`) — sai a fração exata. Com 10 clientes e churn de 4%, ficam
+  9,6. É o modo de todos os botões normais: mesmos parâmetros, sempre o mesmo número.
+- **Com dados** (`Sorteio`) — cada cliente do cohort é um ensaio de Bernoulli, sorteado por
+  binomial. Os clientes ficam inteiros: 10 clientes viram 10 ou 9, nunca 9,6.
 
 Por rodarem o mesmo laço, os dois não podem divergir por descuido — não existe um segundo
 motor para sair de sincronia. Zerando churn, inadimplência e não-conversão, os dois modos
 dão o mesmo número.
 
-Isso importa porque azar é **caminho, não média**: perder uma clínica no mês 1 custa a receita
-dela em todos os meses seguintes, e perder no mês 7 quase não custa. O modo com dados produz
+Isso importa porque azar é **caminho, não média**: perder um cliente no mês 1 custa a receita
+dele em todos os meses seguintes, e perder no mês 7 quase não custa. O modo com dados produz
 essa dependência de trajetória; o determinístico, por construção, distribui a perda de forma
 uniforme no tempo.
-
-A inadimplência é apurada **por cohort**, não sobre a receita média da base — clínica nova
-fatura muito menos que clínica madura, e cobrar a média superestima a perda.
 
 ## Calcular sorte
 
@@ -184,23 +213,27 @@ de avisos.
 
 Os arquivos vão para `simulacoes/`, que está no `.gitignore`.
 
-## Fim do trial
+## Fim do piloto
 
-A mensalidade é o que mantém a clínica na plataforma: sem assinatura não há agenda online.
-Então a conversão ao fim do trial é modelada como **churn**, não como camada gratuita — a
-clínica que não assina sai da base no mês em que a cobrança começaria, e some do churn do
-mês. Quem converte paga integralmente a partir dali.
+O piloto é um período de retainer com desconto (`desconto_piloto_percentual`, com 100% = grátis)
+em que a agência entrega o mesmo trabalho. Ao fim dele, a conversão é modelada como **churn**:
+o cliente que não decide continuar sai da carteira no mês em que o retainer cheio começaria, e
+some do churn do mês. Quem converte paga integralmente a partir dali.
 
-Deixar a conversão em 100% desliga o efeito e faz o trial ser só um adiamento da cobrança.
+Deixar a conversão em 100% desliga o efeito e faz o piloto ser só um desconto de entrada.
+Com `meses_piloto = 0` a decisão acontece já no primeiro mês.
 
 ## KPIs derivados
 
-A maioria é soma direta do período. Os três que envolvem convenção:
+A maioria é soma direta do período. Os que envolvem convenção:
 
 - **Payback** — primeiro mês com resultado acumulado ≥ 0.
-- **LTV médio** — receita média por clínica ativa/mês × vida média, com vida média =
+- **Margem líquida** — resultado líquido do período ÷ receita do período.
+- **Utilização média da equipe** — média, nos meses com equipe, de horas demandadas ÷ horas
+  produtivas totais; fica abaixo da utilização alvo porque a equipe sobe em profissionais inteiros.
+- **LTV médio** — receita média por cliente ativo/mês × vida média, com vida média =
   1 ÷ (churn + inadimplência).
-- **Crescimento médio da base** — média geométrica da variação mês a mês das clínicas ativas.
+- **Crescimento médio da carteira** — média geométrica da variação mês a mês dos clientes ativos.
 
 ## Estrutura
 
@@ -215,7 +248,7 @@ pricing_tool/
   ui/
     janela.py               janela, barra de ações e modos de abertura
     formulario.py           formulário de parâmetros
-    tabelas_entrada.py      listas de aquisição e de maturação
+    tabelas_entrada.py      listas de comerciais, aquisição, custo e escopo
     campos.py               campos restritos ao domínio
     resultados.py           KPIs e tabela mensal
     graficos.py             gráficos (QtCharts)

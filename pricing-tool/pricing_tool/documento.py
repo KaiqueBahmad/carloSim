@@ -9,16 +9,16 @@ from .motor import KpisAgregados, MesResultado, Resultados
 from .parametros import (
     TIPO_EXPRESSAO,
     TIPO_LISTA,
-    CurvaMaturacao,
+    CurvaEscopo,
     FuncaoAquisicao,
     FuncaoCusto,
-    FuncaoVendedores,
+    FuncaoComerciais,
     Metadados,
     Parametros,
     PontoAquisicao,
     PontoCusto,
-    PontoMaturacao,
-    PontoVendedores,
+    PontoEscopo,
+    PontoComerciais,
     agora_utc,
     mes_atual,
 )
@@ -27,11 +27,14 @@ VERSAO_SCHEMA = "1.0"
 
 PERCENTUAIS = (
     "taxa_churn_mensal",
-    "taxa_percentual_por_atendimento",
-    "percentual_conversao_pos_trial",
-    "custo_processamento_percentual",
+    "fee_gestao_midia_percentual",
+    "desconto_piloto_percentual",
+    "percentual_conversao_pos_piloto",
+    "utilizacao_alvo_percentual",
+    "custo_terceiros_percentual",
+    "aliquota_impostos_percentual",
     "taxa_inadimplencia",
-    "comissao_vendedor_percentual",
+    "comissao_comercial_percentual",
 )
 
 
@@ -135,11 +138,11 @@ def _ler_parametros(bruto: Any, avisos: list[str]) -> Parametros:
 
     for campo in fields(Parametros):
         if campo.name in (
-            "funcao_vendedores",
+            "funcao_comerciais",
             "funcao_aquisicao",
-            "curva_maturacao",
-            "funcao_custo_operacional",
-            "sazonalidade_mensal",
+            "curva_escopo",
+            "funcao_custo_estrutura",
+            "sazonalidade_midia",
         ):
             continue
         if campo.name not in bruto:
@@ -155,15 +158,15 @@ def _ler_parametros(bruto: Any, avisos: list[str]) -> Parametros:
         setattr(parametros, campo.name, valor)
 
     parametros.meses_simulados = max(1, min(600, parametros.meses_simulados))
-    parametros.funcao_vendedores = _ler_funcao_vendedores(
-        bruto.get("funcao_vendedores"), parametros.funcao_vendedores, avisos
+    parametros.funcao_comerciais = _ler_funcao_comerciais(
+        bruto.get("funcao_comerciais"), parametros.funcao_comerciais, avisos
     )
     parametros.funcao_aquisicao = _ler_funcao_aquisicao(bruto.get("funcao_aquisicao"), avisos)
-    parametros.curva_maturacao = _ler_curva_maturacao(bruto.get("curva_maturacao"), avisos)
-    parametros.funcao_custo_operacional = _ler_funcao_custo(
-        bruto.get("funcao_custo_operacional"), parametros.funcao_custo_operacional, avisos
+    parametros.curva_escopo = _ler_curva_escopo(bruto.get("curva_escopo"), avisos)
+    parametros.funcao_custo_estrutura = _ler_funcao_custo(
+        bruto.get("funcao_custo_estrutura"), parametros.funcao_custo_estrutura, avisos
     )
-    parametros.sazonalidade_mensal = _ler_sazonalidade(bruto.get("sazonalidade_mensal"), avisos)
+    parametros.sazonalidade_midia = _ler_sazonalidade(bruto.get("sazonalidade_midia"), avisos)
     return parametros
 
 
@@ -172,7 +175,7 @@ def _ler_funcao_custo(bruto: Any, padrao: FuncaoCusto, avisos: list[str]) -> Fun
         return padrao
     bruto = bruto if isinstance(bruto, dict) else {}
     funcao = FuncaoCusto()
-    funcao.tipo = _tipo(bruto.get("tipo"), funcao.tipo, "funcao_custo_operacional.tipo", avisos)
+    funcao.tipo = _tipo(bruto.get("tipo"), funcao.tipo, "funcao_custo_estrutura.tipo", avisos)
     if isinstance(bruto.get("expressao"), str) and bruto["expressao"].strip():
         funcao.expressao = bruto["expressao"].strip()
     funcao.valores = []
@@ -190,12 +193,12 @@ def _ler_funcao_custo(bruto: Any, padrao: FuncaoCusto, avisos: list[str]) -> Fun
     return funcao
 
 
-def _ler_funcao_vendedores(bruto, padrao: FuncaoVendedores, avisos: list[str]) -> FuncaoVendedores:
+def _ler_funcao_comerciais(bruto, padrao: FuncaoComerciais, avisos: list[str]) -> FuncaoComerciais:
     if bruto is None:
         return padrao
     bruto = bruto if isinstance(bruto, dict) else {}
-    funcao = FuncaoVendedores()
-    funcao.tipo = _tipo(bruto.get("tipo"), funcao.tipo, "funcao_vendedores.tipo", avisos)
+    funcao = FuncaoComerciais()
+    funcao.tipo = _tipo(bruto.get("tipo"), funcao.tipo, "funcao_comerciais.tipo", avisos)
     if isinstance(bruto.get("expressao"), str) and bruto["expressao"].strip():
         funcao.expressao = bruto["expressao"].strip()
     funcao.valores = []
@@ -204,10 +207,10 @@ def _ler_funcao_vendedores(bruto, padrao: FuncaoVendedores, avisos: list[str]) -
             continue
         mes = str(item.get("mes") or "")
         if not calendario.valido(mes):
-            avisos.append(f"ponto de vendedores com mes invalido ({mes!r}) foi descartado.")
+            avisos.append(f"ponto de comerciais com mes invalido ({mes!r}) foi descartado.")
             continue
-        quantidade = _inteiro(item.get("vendedores"), 0, "vendedores", avisos)
-        funcao.valores.append(PontoVendedores(mes=mes, vendedores=max(0, quantidade)))
+        quantidade = _inteiro(item.get("comerciais"), 0, "comerciais", avisos)
+        funcao.valores.append(PontoComerciais(mes=mes, comerciais=max(0, quantidade)))
     funcao.valores.sort(key=lambda ponto: ponto.mes)
     return funcao
 
@@ -226,16 +229,16 @@ def _ler_funcao_aquisicao(bruto: Any, avisos: list[str]) -> FuncaoAquisicao:
         if not calendario.valido(mes):
             avisos.append(f"ponto de aquisicao com mes invalido ({mes!r}) foi descartado.")
             continue
-        quantidade = _inteiro(item.get("clinicas_adquiridas"), 0, "clinicas_adquiridas", avisos)
-        funcao.valores.append(PontoAquisicao(mes=mes, clinicas_adquiridas=max(0, quantidade)))
+        quantidade = _inteiro(item.get("clientes_adquiridos"), 0, "clientes_adquiridos", avisos)
+        funcao.valores.append(PontoAquisicao(mes=mes, clientes_adquiridos=max(0, quantidade)))
     funcao.valores.sort(key=lambda ponto: ponto.mes)
     return funcao
 
 
-def _ler_curva_maturacao(bruto: Any, avisos: list[str]) -> CurvaMaturacao:
+def _ler_curva_escopo(bruto: Any, avisos: list[str]) -> CurvaEscopo:
     bruto = bruto if isinstance(bruto, dict) else {}
-    curva = CurvaMaturacao()
-    curva.tipo = _tipo(bruto.get("tipo"), curva.tipo, "curva_maturacao.tipo", avisos)
+    curva = CurvaEscopo()
+    curva.tipo = _tipo(bruto.get("tipo"), curva.tipo, "curva_escopo.tipo", avisos)
     if isinstance(bruto.get("expressao"), str) and bruto["expressao"].strip():
         curva.expressao = bruto["expressao"].strip()
     curva.valores = []
@@ -244,25 +247,25 @@ def _ler_curva_maturacao(bruto: Any, avisos: list[str]) -> CurvaMaturacao:
             continue
         t = _inteiro(item.get("mes_desde_ativacao"), 0, "mes_desde_ativacao", avisos)
         if t < 1:
-            avisos.append("ponto de maturacao com `mes_desde_ativacao` < 1 foi descartado.")
+            avisos.append("ponto de escopo com `mes_desde_ativacao` < 1 foi descartado.")
             continue
         ocupacao = _percentual(
-            item.get("ocupacao_percentual"), 0.0, "ocupacao_percentual", avisos
+            item.get("escopo_percentual"), 0.0, "escopo_percentual", avisos
         )
-        curva.valores.append(PontoMaturacao(mes_desde_ativacao=t, ocupacao_percentual=ocupacao))
+        curva.valores.append(PontoEscopo(mes_desde_ativacao=t, escopo_percentual=ocupacao))
     curva.valores.sort(key=lambda ponto: ponto.mes_desde_ativacao)
     return curva
 
 
 def _ler_sazonalidade(bruto: Any, avisos: list[str]) -> list[float]:
-    padrao = Parametros().sazonalidade_mensal
+    padrao = Parametros().sazonalidade_midia
     if bruto is None:
         return padrao
     if not isinstance(bruto, list) or len(bruto) != 12:
-        avisos.append("`sazonalidade_mensal` precisa ter 12 valores; usando o default.")
+        avisos.append("`sazonalidade_midia` precisa ter 12 valores; usando o default.")
         return padrao
     return [
-        max(0.0, _numero(valor, 1.0, "sazonalidade_mensal", avisos)) for valor in bruto
+        max(0.0, _numero(valor, 1.0, "sazonalidade_midia", avisos)) for valor in bruto
     ]
 
 
@@ -294,7 +297,7 @@ def _preencher(classe, bruto: dict):
         elif campo.name == "payback_meses":
             valores[campo.name] = int(valor) if isinstance(valor, (int, float)) else None
         elif isinstance(valor, bool) or not isinstance(valor, (int, float)):
-            valores[campo.name] = 0 if campo.name in ("mes", "clinicas_novas") else 0.0
+            valores[campo.name] = 0 if campo.name in ("mes", "clientes_novos", "equipe") else 0.0
         else:
             valores[campo.name] = valor
     return classe(**valores)
@@ -345,23 +348,23 @@ def validar(parametros: Parametros, metadados: Metadados) -> list[str]:
     if not calendario.valido(metadados.data_inicio):
         erros.append("`data_inicio` precisa estar no formato YYYY-MM.")
 
-    vendedores = parametros.funcao_vendedores
-    if vendedores.tipo == TIPO_EXPRESSAO:
-        erro = expressoes.validar(vendedores.expressao, ("n",))
+    comerciais = parametros.funcao_comerciais
+    if comerciais.tipo == TIPO_EXPRESSAO:
+        erro = expressoes.validar(comerciais.expressao, ("n",))
         if erro:
-            erros.append(f"Expressao de vendedores: {erro}")
+            erros.append(f"Expressao de comerciais: {erro}")
     elif calendario.valido(metadados.data_inicio):
         esperados = calendario.sequencia(metadados.data_inicio, parametros.meses_simulados)
-        faltando = [mes for mes in esperados if mes not in {p.mes for p in vendedores.valores}]
+        faltando = [mes for mes in esperados if mes not in {p.mes for p in comerciais.valores}]
         if faltando:
             erros.append(
-                f"A lista de vendedores nao cobre {len(faltando)} mes(es) do horizonte "
+                f"A lista de comerciais nao cobre {len(faltando)} mes(es) do horizonte "
                 f"(a partir de {faltando[0]})."
             )
 
     funcao = parametros.funcao_aquisicao
     if funcao.tipo == TIPO_EXPRESSAO:
-        erro = expressoes.validar(funcao.expressao, ("n", "v"))
+        erro = expressoes.validar(funcao.expressao, ("n", "c"))
         if erro:
             erros.append(f"Expressao de aquisicao: {erro}")
     elif calendario.valido(metadados.data_inicio):
@@ -373,32 +376,37 @@ def validar(parametros: Parametros, metadados: Metadados) -> list[str]:
                 f"(a partir de {faltando[0]})."
             )
 
-    custo = parametros.funcao_custo_operacional
+    custo = parametros.funcao_custo_estrutura
     if custo.tipo == TIPO_EXPRESSAO:
         erro = expressoes.validar(custo.expressao, ("n", "a"))
         if erro:
-            erros.append(f"Expressao de custo operacional: {erro}")
+            erros.append(f"Expressao de custo de estrutura: {erro}")
     elif calendario.valido(metadados.data_inicio):
         esperados = calendario.sequencia(metadados.data_inicio, parametros.meses_simulados)
         faltando = [mes for mes in esperados if mes not in {p.mes for p in custo.valores}]
         if faltando:
             erros.append(
-                f"A lista de custo operacional nao cobre {len(faltando)} mes(es) do horizonte "
+                f"A lista de custo de estrutura nao cobre {len(faltando)} mes(es) do horizonte "
                 f"(a partir de {faltando[0]})."
             )
 
-    curva = parametros.curva_maturacao
+    curva = parametros.curva_escopo
     if curva.tipo == TIPO_EXPRESSAO:
         erro = expressoes.validar(curva.expressao, ("t",))
         if erro:
-            erros.append(f"Expressao de maturacao: {erro}")
+            erros.append(f"Expressao de escopo: {erro}")
     else:
         if not curva.valores:
-            erros.append("A curva de maturacao em lista precisa de ao menos um ponto.")
+            erros.append("A curva de escopo em lista precisa de ao menos um ponto.")
         else:
             esperados = list(range(1, len(curva.valores) + 1))
             if [ponto.mes_desde_ativacao for ponto in curva.valores] != esperados:
                 erros.append(
-                    "A curva de maturacao precisa comecar em 1 e seguir sem lacunas (1, 2, 3...)."
+                    "A curva de escopo precisa comecar em 1 e seguir sem lacunas (1, 2, 3...)."
                 )
+
+    if parametros.horas_produtivas_profissional_mes <= 0:
+        erros.append("`horas_produtivas_profissional_mes` precisa ser maior que zero.")
+    if parametros.utilizacao_alvo_percentual <= 0:
+        erros.append("`utilizacao_alvo_percentual` precisa ser maior que zero.")
     return erros

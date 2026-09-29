@@ -1,10 +1,16 @@
-"""Motor de calculo mes a mes e agregacao de KPIs.
+"""Motor de calculo mes a mes e agregacao de KPIs de uma agencia de marketing.
 
-O mesmo laco mensal roda em dois modos, que diferem so em como a base perde
-clinicas: `Continua` tira a fracao exata (deterministico) e `Sorteio` tira um
-binomial por cohort (agente que lanca dados). Ver `POLITICAS`.
+O mesmo laco mensal roda em dois modos, que diferem so em como a carteira perde
+clientes: `Continua` tira a fracao exata (deterministico) e `Sorteio` tira um
+binomial por cohort (agente que lanca dados).
+
+A interacao central do modelo e a capacidade: o escopo de cada cliente e a verba
+de midia sob gestao geram horas de trabalho, e as horas dimensionam a equipe em
+degraus de profissionais inteiros. Receita cresce de forma suave; custo de equipe
+sobe em saltos — e e a margem entre os dois que decide o resultado.
 """
 
+import math
 import random
 from dataclasses import dataclass, field
 
@@ -16,21 +22,26 @@ from .parametros import TIPO_EXPRESSAO, Metadados, Parametros
 class MesResultado:
     mes: int
     data: str
-    vendedores: int
-    clinicas_ativas: float
-    clinicas_novas: int
-    clinicas_churned: float
-    clinicas_inadimplentes: float
-    consultorios_ativos: float
-    ocupacao_media_percentual: float
-    atendimentos_efetivos: float
-    volume_transacionado: float
-    receita_transacional: float
-    receita_mensalidade: float
+    comerciais: int
+    clientes_ativos: float
+    clientes_novos: int
+    clientes_churned: float
+    clientes_inadimplentes: float
+    verba_midia_gerenciada: float
+    horas_demandadas: float
+    equipe: int
+    utilizacao_equipe_percentual: float
+    receita_retainer: float
+    receita_midia: float
+    receita_setup: float
     receita_total: float
+    custo_equipe: float
+    custo_estrutura: float
+    custo_terceiros: float
+    impostos: float
     perda_inadimplencia: float
-    comissao_vendedor: float
-    comissao_por_vendedor: float
+    comissao_comercial: float
+    comissao_por_comercial: float
     custos_total: float
     resultado_liquido: float
     resultado_acumulado: float
@@ -38,21 +49,25 @@ class MesResultado:
 
 @dataclass
 class KpisAgregados:
-    volume_transacionado_total: float = 0.0
+    verba_midia_total: float = 0.0
     receita_total_periodo: float = 0.0
-    receita_transacional_total: float = 0.0
-    receita_mensalidade_total: float = 0.0
+    receita_retainer_total: float = 0.0
+    receita_midia_total: float = 0.0
+    receita_setup_total: float = 0.0
+    custo_equipe_total: float = 0.0
     perda_inadimplencia_total: float = 0.0
-    comissao_vendedor_total: float = 0.0
-    comissao_por_vendedor_total: float = 0.0
+    comissao_comercial_total: float = 0.0
+    comissao_por_comercial_total: float = 0.0
     custos_total_periodo: float = 0.0
     resultado_liquido_total: float = 0.0
-    atendimentos_efetivos_total: float = 0.0
-    ticket_medio_realizado: float = 0.0
-    clinicas_adquiridas_total: float = 0.0
-    clinicas_churned_total: float = 0.0
-    clinicas_inadimplentes_total: float = 0.0
-    clinicas_ativas_final: float = 0.0
+    margem_liquida_percentual: float = 0.0
+    receita_media_por_cliente_mes: float = 0.0
+    utilizacao_media_percentual: float = 0.0
+    equipe_final: float = 0.0
+    clientes_adquiridos_total: float = 0.0
+    clientes_churned_total: float = 0.0
+    clientes_inadimplentes_total: float = 0.0
+    clientes_ativos_final: float = 0.0
     ltv_medio: float = 0.0
     payback_meses: int | None = None
     crescimento_medio_base_percentual: float = 0.0
@@ -66,74 +81,74 @@ class Resultados:
 
 
 class Continua:
-    """Saida deterministica: a fracao exata da base deixa o cohort."""
+    """Saida deterministica: a fracao exata da carteira deixa o cohort."""
 
-    def saem(self, ativas: float, taxa: float) -> float:
-        return ativas * taxa
+    def saem(self, ativos: float, taxa: float) -> float:
+        return ativos * taxa
 
 
 class Sorteio:
-    """Saida por dado: cada clinica do cohort e um ensaio de Bernoulli."""
+    """Saida por dado: cada cliente do cohort e um ensaio de Bernoulli."""
 
     def __init__(self, rng: random.Random):
         self._rng = rng
 
-    def saem(self, ativas: float, taxa: float) -> float:
-        clinicas = int(round(ativas))
-        if clinicas <= 0 or taxa <= 0.0:
+    def saem(self, ativos: float, taxa: float) -> float:
+        clientes = int(round(ativos))
+        if clientes <= 0 or taxa <= 0.0:
             return 0.0
-        return float(self._rng.binomialvariate(clinicas, min(1.0, taxa)))
+        return float(self._rng.binomialvariate(clientes, min(1.0, taxa)))
 
 
 @dataclass
 class _Cohort:
     mes_ativacao: int
-    ativas: float
+    ativos: float
 
 
-def _fonte_vendedores(parametros: Parametros):
-    """Retorna f(mes_simulacao, mes_calendario) -> vendedores ativos no mes."""
-    funcao = parametros.funcao_vendedores
+def _fonte_comerciais(parametros: Parametros):
+    """Retorna f(mes_simulacao, mes_calendario) -> comerciais ativos no mes."""
+    funcao = parametros.funcao_comerciais
     if funcao.tipo == TIPO_EXPRESSAO:
         expressao = expressoes.compilar(funcao.expressao, ("n",))
         return lambda n, _data: expressoes.normalizar_aquisicao(expressao.avaliar(n=n))
-    por_mes = {ponto.mes: ponto.vendedores for ponto in funcao.valores}
+    por_mes = {ponto.mes: ponto.comerciais for ponto in funcao.valores}
     return lambda _n, data: expressoes.normalizar_aquisicao(float(por_mes.get(data, 0)))
 
 
 def _fonte_aquisicao(parametros: Parametros):
-    """Retorna f(mes_simulacao, mes_calendario, vendedores) -> clinicas novas."""
+    """Retorna f(mes_simulacao, mes_calendario, comerciais) -> clientes novos."""
     funcao = parametros.funcao_aquisicao
     if funcao.tipo == TIPO_EXPRESSAO:
-        expressao = expressoes.compilar(funcao.expressao, ("n", "v"))
-        return lambda n, _data, v: expressoes.normalizar_aquisicao(expressao.avaliar(n=n, v=v))
-    por_mes = {ponto.mes: ponto.clinicas_adquiridas for ponto in funcao.valores}
-    return lambda _n, data, _v: expressoes.normalizar_aquisicao(float(por_mes.get(data, 0)))
+        expressao = expressoes.compilar(funcao.expressao, ("n", "c"))
+        return lambda n, _data, c: expressoes.normalizar_aquisicao(expressao.avaliar(n=n, c=c))
+    por_mes = {ponto.mes: ponto.clientes_adquiridos for ponto in funcao.valores}
+    return lambda _n, data, _c: expressoes.normalizar_aquisicao(float(por_mes.get(data, 0)))
 
 
-def _fonte_maturacao(parametros: Parametros):
-    """Retorna f(mes_desde_ativacao) -> ocupacao entre 0 e 1."""
-    curva = parametros.curva_maturacao
+def _fonte_escopo(parametros: Parametros):
+    """Retorna f(mes_desde_ativacao) -> fracao do escopo pleno entre 0 e 1."""
+    curva = parametros.curva_escopo
     if curva.tipo == TIPO_EXPRESSAO:
         expressao = expressoes.compilar(curva.expressao, ("t",))
-        return lambda t: expressoes.normalizar_ocupacao(expressao.avaliar(t=t))
+        return lambda t: expressoes.normalizar_escopo(expressao.avaliar(t=t))
     pontos = sorted(curva.valores, key=lambda ponto: ponto.mes_desde_ativacao)
     if not pontos:
         return lambda _t: 0.0
-    por_t = {ponto.mes_desde_ativacao: ponto.ocupacao_percentual for ponto in pontos}
+    por_t = {ponto.mes_desde_ativacao: ponto.escopo_percentual for ponto in pontos}
     ultimo = pontos[-1]
 
-    def maturacao(t: int) -> float:
-        # Alem do ultimo ponto vale a ocupacao de regime.
-        bruto = por_t.get(t, ultimo.ocupacao_percentual if t > ultimo.mes_desde_ativacao else 0.0)
-        return expressoes.normalizar_ocupacao(float(bruto))
+    def escopo(t: int) -> float:
+        # Alem do ultimo ponto vale o escopo de regime.
+        bruto = por_t.get(t, ultimo.escopo_percentual if t > ultimo.mes_desde_ativacao else 0.0)
+        return expressoes.normalizar_escopo(float(bruto))
 
-    return maturacao
+    return escopo
 
 
 def _fonte_custo(parametros: Parametros):
-    """Retorna f(mes, mes_calendario, clinicas_ativas) -> custo operacional do mes."""
-    funcao = parametros.funcao_custo_operacional
+    """Retorna f(mes, mes_calendario, clientes_ativos) -> custo de estrutura do mes."""
+    funcao = parametros.funcao_custo_estrutura
     if funcao.tipo == TIPO_EXPRESSAO:
         expressao = expressoes.compilar(funcao.expressao, ("n", "a"))
         return lambda n, _data, a: expressoes.normalizar_custo(expressao.avaliar(n=n, a=a))
@@ -142,123 +157,138 @@ def _fonte_custo(parametros: Parametros):
 
 
 def _sazonalidade(parametros: Parametros, data: str) -> float:
-    fatores = parametros.sazonalidade_mensal
+    fatores = parametros.sazonalidade_midia
     indice = calendario.indice_no_ano(data)
     if len(fatores) != 12:
         return 1.0
     return max(0.0, float(fatores[indice]))
 
 
+def _dimensionar_equipe(parametros: Parametros, horas: float) -> int:
+    """Profissionais inteiros para absorver as horas dentro da utilizacao alvo."""
+    capacidade = (
+        parametros.horas_produtivas_profissional_mes * parametros.utilizacao_alvo_percentual
+    )
+    if horas <= 1e-9 or capacidade <= 0.0:
+        return 0
+    return math.ceil(horas / capacidade - 1e-9)
+
+
 def simular(parametros: Parametros, metadados: Metadados, politica=None) -> Resultados:
     """Roda a simulacao mes a mes. Lanca ErroExpressao se uma formula for invalida.
 
-    `politica` decide como a base encolhe; o padrao e deterministico.
+    `politica` decide como a carteira encolhe; o padrao e deterministico.
     """
     politica = politica or Continua()
-    vendedores_ativos = _fonte_vendedores(parametros)
+    comerciais_ativos = _fonte_comerciais(parametros)
     aquisicao = _fonte_aquisicao(parametros)
-    maturacao = _fonte_maturacao(parametros)
-    custo_operacional = _fonte_custo(parametros)
+    escopo_em = _fonte_escopo(parametros)
+    custo_estrutura_em = _fonte_custo(parametros)
 
     cohorts: list[_Cohort] = []
     series: list[MesResultado] = []
     acumulado = 0.0
 
-    vagas_por_clinica_mes = (
-        parametros.consultorios_por_clinica_media
-        * parametros.vagas_disponiveis_dia
-        * parametros.dias_operacao_mes
-    )
-
     for mes in range(1, max(0, parametros.meses_simulados) + 1):
         data = calendario.somar(metadados.data_inicio, mes - 1)
 
-        # 1. Aquisicao / 2. Churn sobre a base do mes anterior / 3. Base ativa
-        vendedores = vendedores_ativos(mes, data)
-        novas = aquisicao(mes, data, vendedores)
+        # 1. Aquisicao / 2. Churn sobre a carteira do mes anterior / 3. Carteira ativa
+        comerciais = comerciais_ativos(mes, data)
+        novos = aquisicao(mes, data, comerciais)
         churned = 0.0
         for cohort in cohorts:
-            perdidas = politica.saem(cohort.ativas, parametros.taxa_churn_mensal)
-            cohort.ativas -= perdidas
-            churned += perdidas
-        if novas > 0:
-            cohorts.append(_Cohort(mes_ativacao=mes, ativas=float(novas)))
+            perdidos = politica.saem(cohort.ativos, parametros.taxa_churn_mensal)
+            cohort.ativos -= perdidos
+            churned += perdidos
+        if novos > 0:
+            cohorts.append(_Cohort(mes_ativacao=mes, ativos=float(novos)))
 
-        # Fim do trial: quem nao assina deixa de ter agenda online, entao sai da base.
+        # Fim do piloto: quem nao decide continuar encerra o contrato e sai da carteira.
         for cohort in cohorts:
-            if mes - cohort.mes_ativacao + 1 == parametros.meses_trial_gratis + 1:
+            if mes - cohort.mes_ativacao + 1 == parametros.meses_piloto + 1:
                 nao_converteram = politica.saem(
-                    cohort.ativas, 1.0 - parametros.percentual_conversao_pos_trial
+                    cohort.ativos, 1.0 - parametros.percentual_conversao_pos_piloto
                 )
-                cohort.ativas -= nao_converteram
+                cohort.ativos -= nao_converteram
                 churned += nao_converteram
-        cohorts = [cohort for cohort in cohorts if cohort.ativas > 1e-9]
+        cohorts = [cohort for cohort in cohorts if cohort.ativos > 1e-9]
 
-        clinicas_ativas = sum(cohort.ativas for cohort in cohorts)
+        clientes_ativos = sum(cohort.ativos for cohort in cohorts)
         fator_sazonal = _sazonalidade(parametros, data)
 
-        # 4-8. Maturacao por cohort, sazonalidade e atendimentos efetivos.
-        # A receita e apurada por cohort porque a inadimplencia cobra do cohort
-        # que deixou de pagar, e nao a media da base: clinica nova fatura muito
-        # menos que clinica madura.
-        atendimentos_efetivos = 0.0
-        clinicas_pagantes = 0.0
+        # 4-8. Por cohort: escopo em execucao define retainer, verba de midia e horas.
+        # A receita e apurada por cohort porque a inadimplencia cobra do cohort que
+        # deixou de pagar, e nao a media da carteira: cliente novo, em escopo reduzido
+        # e piloto com desconto, fatura muito menos que cliente maduro.
+        verba_total = 0.0
+        horas_total = 0.0
+        receita_retainer = 0.0
+        receita_midia = 0.0
+        receita_setup = 0.0
         receita_por_cohort: list[float] = []
         for cohort in cohorts:
             t = mes - cohort.mes_ativacao + 1
-            ocupacao = expressoes.normalizar_ocupacao(maturacao(t) * fator_sazonal)
-            atendimentos = cohort.ativas * vagas_por_clinica_mes * ocupacao
-            atendimentos_efetivos += atendimentos
-            receita = atendimentos * (
-                parametros.taxa_fixa_por_atendimento
-                + parametros.valor_medio_atendimento * parametros.taxa_percentual_por_atendimento
+            escopo = escopo_em(t)
+            em_piloto = t <= parametros.meses_piloto
+            fator_piloto = 1.0 - parametros.desconto_piloto_percentual if em_piloto else 1.0
+
+            verba = cohort.ativos * parametros.verba_midia_media * escopo * fator_sazonal
+            horas = (
+                cohort.ativos * parametros.horas_base_cliente_mes * escopo
+                + verba / 10_000.0 * parametros.horas_por_10mil_midia
             )
-            if t > parametros.meses_trial_gratis:
-                clinicas_pagantes += cohort.ativas
-                receita += cohort.ativas * parametros.valor_mensalidade
-            receita_por_cohort.append(receita)
+            retainer = (
+                cohort.ativos * parametros.retainer_mensal_pleno * escopo * fator_piloto
+            )
+            midia = verba * parametros.fee_gestao_midia_percentual
+            setup = cohort.ativos * parametros.taxa_setup if t == 1 else 0.0
 
-        consultorios_ativos = clinicas_ativas * parametros.consultorios_por_clinica_media
-        atendimentos_possiveis = (
-            consultorios_ativos * parametros.vagas_disponiveis_dia * parametros.dias_operacao_mes
-        )
-        ocupacao_media = atendimentos_efetivos / atendimentos_possiveis if atendimentos_possiveis else 0.0
+            verba_total += verba
+            horas_total += horas
+            receita_retainer += retainer
+            receita_midia += midia
+            receita_setup += setup
+            receita_por_cohort.append(retainer + midia + setup)
 
-        # 9-12. Receita
-        volume_transacionado = atendimentos_efetivos * parametros.valor_medio_atendimento
-        receita_transacional = (
-            atendimentos_efetivos * parametros.taxa_fixa_por_atendimento
-            + volume_transacionado * parametros.taxa_percentual_por_atendimento
-        )
-        receita_mensalidade = clinicas_pagantes * parametros.valor_mensalidade
-        receita_total = receita_transacional + receita_mensalidade
+        receita_total = receita_retainer + receita_midia + receita_setup
 
-        # 13. Inadimplencia: a fatura do mes nao e paga e a clinica perde o acesso.
-        # Ela operou o mes inteiro, entao a receita faturada vira perda e a saida
-        # so vale para o mes seguinte.
+        # 9. Capacidade: horas viram profissionais inteiros, e ai o custo salta em degraus.
+        equipe = _dimensionar_equipe(parametros, horas_total)
+        horas_disponiveis = equipe * parametros.horas_produtivas_profissional_mes
+        utilizacao = horas_total / horas_disponiveis if horas_disponiveis else 0.0
+        custo_equipe = equipe * parametros.custo_mensal_profissional
+
+        # 10. Inadimplencia: a fatura do mes nao e paga e o contrato e encerrado.
+        # O cliente consumiu o mes inteiro de entrega, entao a receita faturada vira
+        # perda e a saida so vale para o mes seguinte.
         inadimplentes = 0.0
         perda_inadimplencia = 0.0
         if parametros.taxa_inadimplencia > 0:
             for cohort, receita in zip(cohorts, receita_por_cohort):
-                perdidas = politica.saem(cohort.ativas, parametros.taxa_inadimplencia)
-                if cohort.ativas > 0:
-                    perda_inadimplencia += receita * (perdidas / cohort.ativas)
-                cohort.ativas -= perdidas
-                inadimplentes += perdidas
-            cohorts = [cohort for cohort in cohorts if cohort.ativas > 1e-9]
+                perdidos = politica.saem(cohort.ativos, parametros.taxa_inadimplencia)
+                if cohort.ativos > 0:
+                    perda_inadimplencia += receita * (perdidos / cohort.ativos)
+                cohort.ativos -= perdidos
+                inadimplentes += perdidos
+            cohorts = [cohort for cohort in cohorts if cohort.ativos > 1e-9]
 
-        # 14. Comissao do vendedor sobre o que entrou de fato: se a clinica nao
-        # pagou, ninguem comissiona em cima da fatura furada.
+        # 11. Comissao comercial sobre o que entrou de fato: se o cliente nao pagou,
+        # ninguem comissiona em cima da fatura furada.
         receita_recebida = receita_total - perda_inadimplencia
-        comissao_vendedor = receita_recebida * parametros.comissao_vendedor_percentual
-        comissao_por_vendedor = comissao_vendedor / vendedores if vendedores else 0.0
+        comissao_comercial = receita_recebida * parametros.comissao_comercial_percentual
+        comissao_por_comercial = comissao_comercial / comerciais if comerciais else 0.0
 
-        # 15-16. Custos e resultado
+        # 12-13. Custos e resultado
+        custo_estrutura = custo_estrutura_em(mes, data, clientes_ativos)
+        custo_terceiros = receita_retainer * parametros.custo_terceiros_percentual
+        impostos = receita_total * parametros.aliquota_impostos_percentual
         custos_total = (
-            custo_operacional(mes, data, clinicas_ativas)
-            + volume_transacionado * parametros.custo_processamento_percentual
+            custo_equipe
+            + custo_estrutura
+            + custo_terceiros
+            + impostos
             + perda_inadimplencia
-            + comissao_vendedor
+            + comissao_comercial
         )
         resultado_liquido = receita_total - custos_total
         acumulado += resultado_liquido
@@ -267,21 +297,26 @@ def simular(parametros: Parametros, metadados: Metadados, politica=None) -> Resu
             MesResultado(
                 mes=mes,
                 data=data,
-                vendedores=vendedores,
-                clinicas_ativas=clinicas_ativas,
-                clinicas_novas=novas,
-                clinicas_churned=churned,
-                clinicas_inadimplentes=inadimplentes,
-                consultorios_ativos=consultorios_ativos,
-                ocupacao_media_percentual=ocupacao_media,
-                atendimentos_efetivos=atendimentos_efetivos,
-                volume_transacionado=volume_transacionado,
-                receita_transacional=receita_transacional,
-                receita_mensalidade=receita_mensalidade,
+                comerciais=comerciais,
+                clientes_ativos=clientes_ativos,
+                clientes_novos=novos,
+                clientes_churned=churned,
+                clientes_inadimplentes=inadimplentes,
+                verba_midia_gerenciada=verba_total,
+                horas_demandadas=horas_total,
+                equipe=equipe,
+                utilizacao_equipe_percentual=utilizacao,
+                receita_retainer=receita_retainer,
+                receita_midia=receita_midia,
+                receita_setup=receita_setup,
                 receita_total=receita_total,
+                custo_equipe=custo_equipe,
+                custo_estrutura=custo_estrutura,
+                custo_terceiros=custo_terceiros,
+                impostos=impostos,
                 perda_inadimplencia=perda_inadimplencia,
-                comissao_vendedor=comissao_vendedor,
-                comissao_por_vendedor=comissao_por_vendedor,
+                comissao_comercial=comissao_comercial,
+                comissao_por_comercial=comissao_por_comercial,
                 custos_total=custos_total,
                 resultado_liquido=resultado_liquido,
                 resultado_acumulado=acumulado,
@@ -296,38 +331,52 @@ def _agregar(parametros: Parametros, series: list[MesResultado]) -> KpisAgregado
     if not series:
         return kpis
 
-    kpis.volume_transacionado_total = sum(mes.volume_transacionado for mes in series)
-    kpis.receita_transacional_total = sum(mes.receita_transacional for mes in series)
-    kpis.receita_mensalidade_total = sum(mes.receita_mensalidade for mes in series)
-    kpis.receita_total_periodo = kpis.receita_transacional_total + kpis.receita_mensalidade_total
+    kpis.verba_midia_total = sum(mes.verba_midia_gerenciada for mes in series)
+    kpis.receita_retainer_total = sum(mes.receita_retainer for mes in series)
+    kpis.receita_midia_total = sum(mes.receita_midia for mes in series)
+    kpis.receita_setup_total = sum(mes.receita_setup for mes in series)
+    kpis.receita_total_periodo = (
+        kpis.receita_retainer_total + kpis.receita_midia_total + kpis.receita_setup_total
+    )
+    kpis.custo_equipe_total = sum(mes.custo_equipe for mes in series)
     kpis.perda_inadimplencia_total = sum(mes.perda_inadimplencia for mes in series)
-    kpis.comissao_vendedor_total = sum(mes.comissao_vendedor for mes in series)
-    # O que um vendedor presente o periodo inteiro teria levado.
-    kpis.comissao_por_vendedor_total = sum(mes.comissao_por_vendedor for mes in series)
+    kpis.comissao_comercial_total = sum(mes.comissao_comercial for mes in series)
+    # O que um comercial presente o periodo inteiro teria levado.
+    kpis.comissao_por_comercial_total = sum(mes.comissao_por_comercial for mes in series)
     kpis.custos_total_periodo = sum(mes.custos_total for mes in series)
     kpis.resultado_liquido_total = kpis.receita_total_periodo - kpis.custos_total_periodo
-    kpis.atendimentos_efetivos_total = sum(mes.atendimentos_efetivos for mes in series)
-    kpis.ticket_medio_realizado = (
-        kpis.volume_transacionado_total / kpis.atendimentos_efetivos_total if kpis.atendimentos_efetivos_total else 0.0
-    )
-
-    kpis.clinicas_adquiridas_total = sum(mes.clinicas_novas for mes in series)
-    kpis.clinicas_churned_total = sum(mes.clinicas_churned for mes in series)
-    kpis.clinicas_inadimplentes_total = sum(mes.clinicas_inadimplentes for mes in series)
-    kpis.clinicas_ativas_final = series[-1].clinicas_ativas
-    kpis.churn_acumulado_percentual = (
-        kpis.clinicas_churned_total / kpis.clinicas_adquiridas_total
-        if kpis.clinicas_adquiridas_total
+    kpis.margem_liquida_percentual = (
+        kpis.resultado_liquido_total / kpis.receita_total_periodo
+        if kpis.receita_total_periodo
         else 0.0
     )
 
-    # LTV = receita media por clinica ativa/mes x vida media (1 / saida mensal).
-    # A clinica sai por churn ou por inadimplencia, entao as duas taxas contam.
-    clinicas_mes = sum(mes.clinicas_ativas for mes in series)
-    receita_por_clinica_mes = kpis.receita_total_periodo / clinicas_mes if clinicas_mes else 0.0
+    kpis.clientes_adquiridos_total = sum(mes.clientes_novos for mes in series)
+    kpis.clientes_churned_total = sum(mes.clientes_churned for mes in series)
+    kpis.clientes_inadimplentes_total = sum(mes.clientes_inadimplentes for mes in series)
+    kpis.clientes_ativos_final = series[-1].clientes_ativos
+    kpis.equipe_final = series[-1].equipe
+    kpis.churn_acumulado_percentual = (
+        kpis.clientes_churned_total / kpis.clientes_adquiridos_total
+        if kpis.clientes_adquiridos_total
+        else 0.0
+    )
+
+    meses_com_equipe = [mes for mes in series if mes.equipe]
+    if meses_com_equipe:
+        kpis.utilizacao_media_percentual = sum(
+            mes.utilizacao_equipe_percentual for mes in meses_com_equipe
+        ) / len(meses_com_equipe)
+
+    # LTV = receita media por cliente ativo/mes x vida media (1 / saida mensal).
+    # O cliente sai por churn ou por inadimplencia, entao as duas taxas contam.
+    clientes_mes = sum(mes.clientes_ativos for mes in series)
+    kpis.receita_media_por_cliente_mes = (
+        kpis.receita_total_periodo / clientes_mes if clientes_mes else 0.0
+    )
     saida_mensal = parametros.taxa_churn_mensal + parametros.taxa_inadimplencia
     vida_media = 1.0 / saida_mensal if saida_mensal > 0 else float(len(series))
-    kpis.ltv_medio = receita_por_clinica_mes * vida_media
+    kpis.ltv_medio = kpis.receita_media_por_cliente_mes * vida_media
 
     for mes in series:
         if mes.resultado_acumulado >= 0:
@@ -335,9 +384,9 @@ def _agregar(parametros: Parametros, series: list[MesResultado]) -> KpisAgregado
             break
 
     crescimentos = [
-        series[i].clinicas_ativas / series[i - 1].clinicas_ativas
+        series[i].clientes_ativos / series[i - 1].clientes_ativos
         for i in range(1, len(series))
-        if series[i - 1].clinicas_ativas > 0
+        if series[i - 1].clientes_ativos > 0
     ]
     if crescimentos:
         produto = 1.0

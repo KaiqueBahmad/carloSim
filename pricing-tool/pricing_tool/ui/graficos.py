@@ -1,4 +1,4 @@
-"""Graficos de evolucao: base de clínicas, receita e resultado acumulado."""
+"""Graficos de evolucao: carteira, receita, equipe e resultado acumulado."""
 
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import Qt
@@ -66,37 +66,46 @@ class _Grafico(QChartView):
 class PainelGraficos(QWidget):
     def __init__(self, escuro: bool = False):
         super().__init__()
-        self.clinicas = _Grafico("Base de clínicas", "clínicas", escuro)
+        self.carteira = _Grafico("Carteira de clientes", "clientes", escuro)
         self.receita = _Grafico("Receita e custos", "R$ mil", escuro)
+        self.equipe = _Grafico("Equipe (degraus de capacidade)", "profissionais", escuro)
         self.acumulado = _Grafico("Resultado acumulado", "R$ mil", escuro)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        layout.addWidget(self.clinicas)
+        layout.addWidget(self.carteira)
         layout.addWidget(self.receita)
+        layout.addWidget(self.equipe)
         layout.addWidget(self.acumulado)
 
     def mostrar(self, resultados: Resultados | None) -> None:
         series = resultados.series_mensais if resultados else []
         meses = len(series)
 
-        self.clinicas.desenhar(
+        self.carteira.desenhar(
             [
-                ("Ativas", [(mes.mes, mes.clinicas_ativas) for mes in series]),
-                ("Novas", [(mes.mes, mes.clinicas_novas) for mes in series]),
-                ("Churn", [(mes.mes, mes.clinicas_churned) for mes in series]),
-                ("Inadimplentes", [(mes.mes, mes.clinicas_inadimplentes) for mes in series]),
+                ("Ativos", [(mes.mes, mes.clientes_ativos) for mes in series]),
+                ("Novos", [(mes.mes, mes.clientes_novos) for mes in series]),
+                ("Churn", [(mes.mes, mes.clientes_churned) for mes in series]),
+                ("Inadimplentes", [(mes.mes, mes.clientes_inadimplentes) for mes in series]),
             ],
             meses,
         )
         self.receita.desenhar(
             [
                 ("Receita total", [(mes.mes, mes.receita_total / 1000) for mes in series]),
-                ("Transacional", [(mes.mes, mes.receita_transacional / 1000) for mes in series]),
-                ("Mensalidade", [(mes.mes, mes.receita_mensalidade / 1000) for mes in series]),
+                ("Retainer", [(mes.mes, mes.receita_retainer / 1000) for mes in series]),
+                ("Fee de mídia", [(mes.mes, mes.receita_midia / 1000) for mes in series]),
                 ("Custos", [(mes.mes, mes.custos_total / 1000) for mes in series]),
-                ("Comissão", [(mes.mes, mes.comissao_vendedor / 1000) for mes in series]),
+                ("Equipe", [(mes.mes, mes.custo_equipe / 1000) for mes in series]),
+            ],
+            meses,
+        )
+        self.equipe.desenhar(
+            [
+                ("Equipe", [(mes.mes, mes.equipe) for mes in series]),
+                ("Comerciais", [(mes.mes, mes.comerciais) for mes in series]),
             ],
             meses,
         )

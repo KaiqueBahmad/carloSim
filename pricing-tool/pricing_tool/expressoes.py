@@ -65,7 +65,7 @@ def normalizar_custo(valor: float) -> float:
     return valor
 
 
-def normalizar_ocupacao(valor: float) -> float:
+def normalizar_escopo(valor: float) -> float:
     """Dominio 0.0 a 1.0, com clamp nas duas pontas."""
     if not math.isfinite(valor) or valor < 0.0:
         return 0.0

@@ -20,17 +20,17 @@ from ..parametros import (
     MESES_ABREVIADOS,
     TIPO_EXPRESSAO,
     TIPO_LISTA,
-    CurvaMaturacao,
+    CurvaEscopo,
     FuncaoAquisicao,
+    FuncaoComerciais,
     FuncaoCusto,
-    FuncaoVendedores,
     Metadados,
     Parametros,
     agora_utc,
     lista_aquisicao_padrao,
+    lista_comerciais_padrao,
     lista_custo_padrao,
-    lista_vendedores_padrao,
-    lista_maturacao_padrao,
+    lista_escopo_padrao,
 )
 from .campos import (
     CampoDecimal,
@@ -43,14 +43,14 @@ from .campos import (
 )
 from .tabelas_entrada import (
     TabelaAquisicao,
+    TabelaComerciais,
     TabelaCusto,
-    TabelaMaturacao,
-    TabelaVendedores,
+    TabelaEscopo,
 )
 
 
 class Sazonalidade(QWidget):
-    """Multiplicador de ocupacao por mes do ano (jan-dez)."""
+    """Multiplicador da verba de midia por mes do ano (jan-dez)."""
 
     alterado = Signal()
 
@@ -160,12 +160,12 @@ class Formulario(QScrollArea):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
         layout.addWidget(self._grupo_cenario())
-        layout.addWidget(self._grupo_vendedores())
+        layout.addWidget(self._grupo_comerciais())
         layout.addWidget(self._grupo_aquisicao())
-        layout.addWidget(self._grupo_estrutura())
-        layout.addWidget(self._grupo_utilizacao())
-        layout.addWidget(self._grupo_transacional())
-        layout.addWidget(self._grupo_recorrente())
+        layout.addWidget(self._grupo_contrato())
+        layout.addWidget(self._grupo_escopo())
+        layout.addWidget(self._grupo_piloto())
+        layout.addWidget(self._grupo_capacidade())
         layout.addWidget(self._grupo_custos())
         layout.addStretch(1)
 
@@ -194,17 +194,17 @@ class Formulario(QScrollArea):
         form.addRow("Horizonte", self.meses_simulados)
         return grupo
 
-    def _grupo_vendedores(self) -> QGroupBox:
-        self.tabela_vendedores = TabelaVendedores()
-        self.tabela_vendedores.alterado.connect(self._mudou)
-        self.expressao_vendedores = CampoExpressao(("n",), "ex.: 3 + n / 6")
-        self.expressao_vendedores.alterado.connect(self._mudou)
+    def _grupo_comerciais(self) -> QGroupBox:
+        self.tabela_comerciais = TabelaComerciais()
+        self.tabela_comerciais.alterado.connect(self._mudou)
+        self.expressao_comerciais = CampoExpressao(("n",), "ex.: 2 + n / 6")
+        self.expressao_comerciais.alterado.connect(self._mudou)
 
         pagina_expressao = QWidget()
         coluna = QVBoxLayout(pagina_expressao)
         coluna.setContentsMargins(0, 0, 0, 0)
         coluna.setSpacing(4)
-        coluna.addWidget(self.expressao_vendedores)
+        coluna.addWidget(self.expressao_comerciais)
         coluna.addWidget(
             RotuloAjuda(
                 "Padrão expr-eval. Variável: <b>n</b> (mês da simulação). "
@@ -212,18 +212,19 @@ class Formulario(QScrollArea):
             )
         )
 
-        self.tipo_vendedores = SeletorTipo(
-            "Lista por mês", "Expressão", self.tabela_vendedores, pagina_expressao
+        self.tipo_comerciais = SeletorTipo(
+            "Lista por mês", "Expressão", self.tabela_comerciais, pagina_expressao
         )
-        self.tipo_vendedores.alterado.connect(self._mudou)
+        self.tipo_comerciais.alterado.connect(self._mudou)
 
-        grupo = QGroupBox("2. Vendedores")
+        grupo = QGroupBox("2. Comerciais")
         layout = QVBoxLayout(grupo)
-        layout.addWidget(self.tipo_vendedores)
+        layout.addWidget(self.tipo_comerciais)
         layout.addWidget(
             RotuloAjuda(
-                "Disponível como <b>v</b> na expressão de aquisição — é assim que o time "
-                "vira alavanca: <code>2 * v</code> são duas clínicas por vendedor por mês."
+                "Disponível como <b>c</b> na expressão de aquisição — é assim que o time "
+                "comercial vira alavanca: <code>1 * c</code> é um contrato fechado por "
+                "comercial por mês."
             )
         )
         return grupo
@@ -231,7 +232,7 @@ class Formulario(QScrollArea):
     def _grupo_aquisicao(self) -> QGroupBox:
         self.tabela_aquisicao = TabelaAquisicao()
         self.tabela_aquisicao.alterado.connect(self._mudou)
-        self.expressao_aquisicao = CampoExpressao(("n", "v"), "ex.: 2 * v")
+        self.expressao_aquisicao = CampoExpressao(("n", "c"), "ex.: 1 * c")
         self.expressao_aquisicao.alterado.connect(self._mudou)
 
         pagina_expressao = QWidget()
@@ -242,7 +243,7 @@ class Formulario(QScrollArea):
         coluna.addWidget(
             RotuloAjuda(
                 "Padrão expr-eval, avaliada a cada mês. Variáveis: <b>n</b> (mês da simulação) "
-                "e <b>v</b> (vendedores ativos no mês). O resultado é arredondado e nunca "
+                "e <b>c</b> (comerciais ativos no mês). O resultado é arredondado e nunca "
                 "fica negativo."
             )
         )
@@ -255,7 +256,7 @@ class Formulario(QScrollArea):
         self.taxa_churn_mensal = CampoPercentual(passo=0.25)
         self.taxa_churn_mensal.valueChanged.connect(self._mudou)
 
-        grupo = QGroupBox("3. Aquisição de clínicas")
+        grupo = QGroupBox("3. Aquisição de clientes")
         layout = QVBoxLayout(grupo)
         layout.addWidget(self.tipo_aquisicao)
         form = QFormLayout()
@@ -263,100 +264,142 @@ class Formulario(QScrollArea):
         layout.addLayout(form)
         return grupo
 
-    def _grupo_estrutura(self) -> QGroupBox:
-        self.consultorios_por_clinica_media = CampoDecimal(0.0, 200.0, 0.5, 2)
-        self.consultorios_por_clinica_media.valueChanged.connect(self._mudou)
+    def _grupo_contrato(self) -> QGroupBox:
+        self.retainer_mensal_pleno = CampoMoeda(passo=250.0)
+        self.retainer_mensal_pleno.valueChanged.connect(self._mudou)
+        self.taxa_setup = CampoMoeda(passo=100.0)
+        self.taxa_setup.valueChanged.connect(self._mudou)
+        self.verba_midia_media = CampoMoeda(passo=500.0)
+        self.verba_midia_media.valueChanged.connect(self._mudou)
+        self.fee_gestao_midia_percentual = CampoPercentual(passo=0.5)
+        self.fee_gestao_midia_percentual.valueChanged.connect(self._mudou)
 
-        grupo = QGroupBox("4. Estrutura da clínica")
+        grupo = QGroupBox("4. Contrato (escopo pleno)")
         form = QFormLayout(grupo)
-        form.addRow("Consultórios por clínica (média)", self.consultorios_por_clinica_media)
+        form.addRow("Retainer mensal", self.retainer_mensal_pleno)
+        form.addRow("Taxa de setup (única)", self.taxa_setup)
+        form.addRow("Verba de mídia gerenciada", self.verba_midia_media)
+        form.addRow("Fee sobre a verba", self.fee_gestao_midia_percentual)
+        form.addRow(
+            "",
+            RotuloAjuda(
+                "A verba é do cliente e não vira receita — a agência fica só com o "
+                "<b>fee</b> sobre ela. Mas cada real de verba também gera horas de otimização."
+            ),
+        )
         return grupo
 
-    def _grupo_utilizacao(self) -> QGroupBox:
-        self.vagas_disponiveis_dia = CampoDecimal(0.0, 24.0, 1.0, 1)
-        self.vagas_disponiveis_dia.valueChanged.connect(self._mudou)
-        self.dias_operacao_mes = CampoDecimal(0.0, 31.0, 1.0, 1)
-        self.dias_operacao_mes.valueChanged.connect(self._mudou)
-        self.valor_medio_atendimento = CampoMoeda(passo=5.0)
-        self.valor_medio_atendimento.valueChanged.connect(self._mudou)
-
-        self.tabela_maturacao = TabelaMaturacao()
-        self.tabela_maturacao.alterado.connect(self._mudou)
-        self.expressao_maturacao = CampoExpressao(("t",), "ex.: min(0.3, 0.06 * t)")
-        self.expressao_maturacao.alterado.connect(self._mudou)
+    def _grupo_escopo(self) -> QGroupBox:
+        self.tabela_escopo = TabelaEscopo()
+        self.tabela_escopo.alterado.connect(self._mudou)
+        self.expressao_escopo = CampoExpressao(("t",), "ex.: min(1, 0.5 + 0.1 * t)")
+        self.expressao_escopo.alterado.connect(self._mudou)
 
         pagina_expressao = QWidget()
         coluna = QVBoxLayout(pagina_expressao)
         coluna.setContentsMargins(0, 0, 0, 0)
         coluna.setSpacing(4)
-        coluna.addWidget(self.expressao_maturacao)
+        coluna.addWidget(self.expressao_escopo)
         coluna.addWidget(
             RotuloAjuda(
-                "Padrão expr-eval, avaliada por mês de vida da clínica. Variável: <b>t</b> "
+                "Padrão expr-eval, avaliada por mês de vida do cliente. Variável: <b>t</b> "
                 "(mês desde a ativação, a partir de 1). O resultado é limitado entre 0% e 100%."
             )
         )
 
-        self.tipo_maturacao = SeletorTipo(
-            "Lista de pontos", "Expressão", self.tabela_maturacao, pagina_expressao
+        self.tipo_escopo = SeletorTipo(
+            "Lista de pontos", "Expressão", self.tabela_escopo, pagina_expressao
         )
-        self.tipo_maturacao.alterado.connect(self._mudou)
+        self.tipo_escopo.alterado.connect(self._mudou)
 
         self.sazonalidade = Sazonalidade()
         self.sazonalidade.alterado.connect(self._mudou)
 
-        grupo = QGroupBox("5. Utilização e ocupação")
+        grupo = QGroupBox("5. Escopo e sazonalidade")
         layout = QVBoxLayout(grupo)
-        form = QFormLayout()
-        form.addRow("Vagas por consultório/dia", self.vagas_disponiveis_dia)
-        form.addRow("Dias de operação/mês", self.dias_operacao_mes)
-        form.addRow("Valor médio por atendimento", self.valor_medio_atendimento)
-        layout.addLayout(form)
-        layout.addWidget(QLabel("<b>Curva de maturação</b>"))
-        layout.addWidget(self.tipo_maturacao)
-        layout.addWidget(QLabel("<b>Sazonalidade</b> (multiplicador por mês do ano)"))
+        layout.addWidget(QLabel("<b>Rampa de escopo</b> (fração do escopo pleno em execução)"))
+        layout.addWidget(self.tipo_escopo)
+        layout.addWidget(
+            RotuloAjuda(
+                "O escopo escala retainer, verba de mídia e horas ao mesmo tempo: o cliente "
+                "novo começa pequeno e o time só cresce junto com ele."
+            )
+        )
+        layout.addWidget(QLabel("<b>Sazonalidade da verba</b> (multiplicador por mês do ano)"))
         layout.addWidget(self.sazonalidade)
+        layout.addWidget(
+            RotuloAjuda(
+                "Datas como Black Friday e Natal inflam a verba — e com ela o fee e as horas, "
+                "o que pode forçar contratação no pico."
+            )
+        )
         return grupo
 
-    def _grupo_transacional(self) -> QGroupBox:
-        self.taxa_fixa_por_atendimento = CampoMoeda(passo=0.5)
-        self.taxa_fixa_por_atendimento.valueChanged.connect(self._mudou)
-        self.taxa_percentual_por_atendimento = CampoPercentual(passo=0.5)
-        self.taxa_percentual_por_atendimento.valueChanged.connect(self._mudou)
+    def _grupo_piloto(self) -> QGroupBox:
+        self.meses_piloto = CampoInteiro(0, 24, " meses")
+        self.meses_piloto.valueChanged.connect(self._mudou)
+        self.desconto_piloto_percentual = CampoPercentual(passo=5.0)
+        self.desconto_piloto_percentual.valueChanged.connect(self._mudou)
+        self.percentual_conversao_pos_piloto = CampoPercentual(passo=1.0)
+        self.percentual_conversao_pos_piloto.valueChanged.connect(self._mudou)
 
-        grupo = QGroupBox("6. Receita transacional")
+        grupo = QGroupBox("6. Piloto")
         form = QFormLayout(grupo)
-        form.addRow("Taxa fixa por atendimento", self.taxa_fixa_por_atendimento)
-        form.addRow("Taxa % por atendimento", self.taxa_percentual_por_atendimento)
+        form.addRow("Duração do piloto", self.meses_piloto)
+        form.addRow("Desconto no retainer", self.desconto_piloto_percentual)
+        form.addRow("Conversão ao fim do piloto", self.percentual_conversao_pos_piloto)
+        form.addRow(
+            "",
+            RotuloAjuda(
+                "Durante o piloto o retainer sai com desconto, mas a entrega é a mesma. "
+                "Quem não converte encerra o contrato e sai da carteira; 100% de "
+                "conversão faz do piloto só um desconto de entrada."
+            ),
+        )
         return grupo
 
-    def _grupo_recorrente(self) -> QGroupBox:
-        self.valor_mensalidade = CampoMoeda(passo=10.0)
-        self.valor_mensalidade.valueChanged.connect(self._mudou)
-        self.meses_trial_gratis = CampoInteiro(0, 60, " meses")
-        self.meses_trial_gratis.valueChanged.connect(self._mudou)
-        self.percentual_conversao_pos_trial = CampoPercentual(passo=1.0)
-        self.percentual_conversao_pos_trial.valueChanged.connect(self._mudou)
+    def _grupo_capacidade(self) -> QGroupBox:
+        self.horas_base_cliente_mes = CampoDecimal(0.0, 2000.0, 5.0, 1, " h")
+        self.horas_base_cliente_mes.valueChanged.connect(self._mudou)
+        self.horas_por_10mil_midia = CampoDecimal(0.0, 500.0, 0.5, 1, " h")
+        self.horas_por_10mil_midia.valueChanged.connect(self._mudou)
+        self.horas_produtivas_profissional_mes = CampoDecimal(1.0, 300.0, 5.0, 1, " h")
+        self.horas_produtivas_profissional_mes.valueChanged.connect(self._mudou)
+        self.utilizacao_alvo_percentual = CampoPercentual(passo=1.0)
+        self.utilizacao_alvo_percentual.valueChanged.connect(self._mudou)
+        self.custo_mensal_profissional = CampoMoeda(passo=250.0)
+        self.custo_mensal_profissional.valueChanged.connect(self._mudou)
 
-        grupo = QGroupBox("7. Receita recorrente")
+        grupo = QGroupBox("7. Capacidade e equipe")
         form = QFormLayout(grupo)
-        form.addRow("Mensalidade por clínica", self.valor_mensalidade)
-        form.addRow("Trial grátis", self.meses_trial_gratis)
-        form.addRow("Conversão ao fim do trial", self.percentual_conversao_pos_trial)
-        form.addRow("", RotuloAjuda("As clínicas que não convertem saem da base — sem assinatura não há agenda online."))
+        form.addRow("Horas por cliente/mês (escopo pleno)", self.horas_base_cliente_mes)
+        form.addRow("Horas por R$ 10 mil de verba", self.horas_por_10mil_midia)
+        form.addRow("Horas produtivas por profissional/mês", self.horas_produtivas_profissional_mes)
+        form.addRow("Utilização alvo", self.utilizacao_alvo_percentual)
+        form.addRow("Custo mensal por profissional", self.custo_mensal_profissional)
+        form.addRow(
+            "",
+            RotuloAjuda(
+                "As horas demandadas dividem-se pela capacidade útil "
+                "(horas produtivas × utilização alvo) e o resultado sobe ao próximo "
+                "profissional inteiro — por isso o custo de equipe cresce em degraus."
+            ),
+        )
         return grupo
 
     def _grupo_custos(self) -> QGroupBox:
-        self.custo_processamento_percentual = CampoPercentual(passo=0.1)
-        self.custo_processamento_percentual.valueChanged.connect(self._mudou)
+        self.custo_terceiros_percentual = CampoPercentual(passo=0.5)
+        self.custo_terceiros_percentual.valueChanged.connect(self._mudou)
+        self.aliquota_impostos_percentual = CampoPercentual(passo=0.5)
+        self.aliquota_impostos_percentual.valueChanged.connect(self._mudou)
         self.taxa_inadimplencia = CampoPercentual(passo=0.1)
         self.taxa_inadimplencia.valueChanged.connect(self._mudou)
-        self.comissao_vendedor_percentual = CampoPercentual(passo=1.0)
-        self.comissao_vendedor_percentual.valueChanged.connect(self._mudou)
+        self.comissao_comercial_percentual = CampoPercentual(passo=1.0)
+        self.comissao_comercial_percentual.valueChanged.connect(self._mudou)
 
         self.tabela_custo = TabelaCusto()
         self.tabela_custo.alterado.connect(self._mudou)
-        self.expressao_custo = CampoExpressao(("n", "a"), "ex.: 4500 + 20 * a")
+        self.expressao_custo = CampoExpressao(("n", "a"), "ex.: 9000 + 120 * a")
         self.expressao_custo.alterado.connect(self._mudou)
 
         pagina_expressao = QWidget()
@@ -367,8 +410,9 @@ class Formulario(QScrollArea):
         coluna.addWidget(
             RotuloAjuda(
                 "Padrão expr-eval, avaliada a cada mês. Variáveis: <b>n</b> (mês da simulação) "
-                "e <b>a</b> (clínicas ativas no mês). Nunca fica negativa.<br>"
-                "Degrau por tamanho da base: <code>8000 + 2500 * ceil(a / 50)</code>."
+                "e <b>a</b> (clientes ativos no mês). Nunca fica negativa.<br>"
+                "Aluguel, ferramentas e marketing próprio entram aqui. Degrau por tamanho "
+                "da carteira: <code>9000 + 2500 * ceil(a / 15)</code>."
             )
         )
 
@@ -380,32 +424,33 @@ class Formulario(QScrollArea):
         grupo = QGroupBox("8. Custos")
         layout = QVBoxLayout(grupo)
         form = QFormLayout()
-        form.addRow("Processamento (sobre o volume transacionado)", self.custo_processamento_percentual)
+        form.addRow("Terceiros (sobre o retainer)", self.custo_terceiros_percentual)
         form.addRow(
             "",
             RotuloAjuda(
-                "Zero enquanto o pagamento cai direto na conta da clínica — nesse desenho "
-                "a taxa da operadora de pagamento é dela, não sua."
+                "Freelancers, produção de vídeo e gráfica repassados como custo — "
+                "proporcional ao retainer faturado."
             ),
         )
+        form.addRow("Impostos (sobre a receita)", self.aliquota_impostos_percentual)
         form.addRow("Inadimplência (sobre a fatura)", self.taxa_inadimplencia)
         form.addRow(
             "",
             RotuloAjuda(
-                "A clínica operou o mês, foi faturada e não pagou: a receita do mês vira perda "
-                "<b>e</b> ela perde o acesso à agenda online, saindo da base no mês seguinte."
+                "O cliente consumiu o mês de entrega, foi faturado e não pagou: a receita do "
+                "mês vira perda <b>e</b> o contrato é encerrado, saindo da carteira no mês seguinte."
             ),
         )
-        form.addRow("Comissão do vendedor", self.comissao_vendedor_percentual)
+        form.addRow("Comissão comercial", self.comissao_comercial_percentual)
         form.addRow(
             "",
             RotuloAjuda(
-                "Sobre a receita <b>recebida</b> da clínica — o que não foi pago não comissiona. "
-                "Vale enquanto aquela clínica continuar na carteira dele."
+                "Sobre a receita <b>recebida</b> do cliente — o que não foi pago não comissiona. "
+                "Vale enquanto aquele cliente continuar na carteira."
             ),
         )
         layout.addLayout(form)
-        layout.addWidget(QLabel("<b>Custo operacional do mês</b>"))
+        layout.addWidget(QLabel("<b>Custo de estrutura do mês</b>"))
         layout.addWidget(self.tipo_custo)
         return grupo
 
@@ -419,7 +464,7 @@ class Formulario(QScrollArea):
         if self._carregando:
             return
         mes_inicio, meses = self.data_inicio.mes_iso(), self.meses_simulados.value()
-        self.tabela_vendedores.sincronizar(mes_inicio, meses)
+        self.tabela_comerciais.sincronizar(mes_inicio, meses)
         self.tabela_aquisicao.sincronizar(mes_inicio, meses)
         self.tabela_custo.sincronizar(mes_inicio, meses)
 
@@ -433,10 +478,10 @@ class Formulario(QScrollArea):
     def parametros(self) -> Parametros:
         return Parametros(
             meses_simulados=self.meses_simulados.value(),
-            funcao_vendedores=FuncaoVendedores(
-                tipo=self.tipo_vendedores.tipo(),
-                expressao=self.expressao_vendedores.texto(),
-                valores=self.tabela_vendedores.valores(),
+            funcao_comerciais=FuncaoComerciais(
+                tipo=self.tipo_comerciais.tipo(),
+                expressao=self.expressao_comerciais.texto(),
+                valores=self.tabela_comerciais.valores(),
             ),
             funcao_aquisicao=FuncaoAquisicao(
                 tipo=self.tipo_aquisicao.tipo(),
@@ -444,25 +489,29 @@ class Formulario(QScrollArea):
                 valores=self.tabela_aquisicao.valores(),
             ),
             taxa_churn_mensal=self.taxa_churn_mensal.fracao(),
-            consultorios_por_clinica_media=self.consultorios_por_clinica_media.value(),
-            vagas_disponiveis_dia=self.vagas_disponiveis_dia.value(),
-            dias_operacao_mes=self.dias_operacao_mes.value(),
-            curva_maturacao=CurvaMaturacao(
-                tipo=self.tipo_maturacao.tipo(),
-                expressao=self.expressao_maturacao.texto(),
-                valores=self.tabela_maturacao.valores(),
+            retainer_mensal_pleno=self.retainer_mensal_pleno.value(),
+            taxa_setup=self.taxa_setup.value(),
+            verba_midia_media=self.verba_midia_media.value(),
+            fee_gestao_midia_percentual=self.fee_gestao_midia_percentual.fracao(),
+            curva_escopo=CurvaEscopo(
+                tipo=self.tipo_escopo.tipo(),
+                expressao=self.expressao_escopo.texto(),
+                valores=self.tabela_escopo.valores(),
             ),
-            sazonalidade_mensal=self.sazonalidade.valores(),
-            valor_medio_atendimento=self.valor_medio_atendimento.value(),
-            taxa_fixa_por_atendimento=self.taxa_fixa_por_atendimento.value(),
-            taxa_percentual_por_atendimento=self.taxa_percentual_por_atendimento.fracao(),
-            valor_mensalidade=self.valor_mensalidade.value(),
-            meses_trial_gratis=self.meses_trial_gratis.value(),
-            percentual_conversao_pos_trial=self.percentual_conversao_pos_trial.fracao(),
-            custo_processamento_percentual=self.custo_processamento_percentual.fracao(),
+            sazonalidade_midia=self.sazonalidade.valores(),
+            meses_piloto=self.meses_piloto.value(),
+            desconto_piloto_percentual=self.desconto_piloto_percentual.fracao(),
+            percentual_conversao_pos_piloto=self.percentual_conversao_pos_piloto.fracao(),
+            horas_base_cliente_mes=self.horas_base_cliente_mes.value(),
+            horas_por_10mil_midia=self.horas_por_10mil_midia.value(),
+            horas_produtivas_profissional_mes=self.horas_produtivas_profissional_mes.value(),
+            utilizacao_alvo_percentual=self.utilizacao_alvo_percentual.fracao(),
+            custo_mensal_profissional=self.custo_mensal_profissional.value(),
+            custo_terceiros_percentual=self.custo_terceiros_percentual.fracao(),
+            aliquota_impostos_percentual=self.aliquota_impostos_percentual.fracao(),
             taxa_inadimplencia=self.taxa_inadimplencia.fracao(),
-            comissao_vendedor_percentual=self.comissao_vendedor_percentual.fracao(),
-            funcao_custo_operacional=FuncaoCusto(
+            comissao_comercial_percentual=self.comissao_comercial_percentual.fracao(),
+            funcao_custo_estrutura=FuncaoCusto(
                 tipo=self.tipo_custo.tipo(),
                 expressao=self.expressao_custo.texto(),
                 valores=self.tabela_custo.valores(),
@@ -476,15 +525,15 @@ class Formulario(QScrollArea):
         self.data_inicio.definir_mes_iso(metadados.data_inicio)
         self.meses_simulados.setValue(parametros.meses_simulados)
 
-        vendedores = parametros.funcao_vendedores
-        self.expressao_vendedores.definir_texto(vendedores.expressao)
-        self.tabela_vendedores.definir(
-            vendedores.valores
-            or lista_vendedores_padrao(metadados.data_inicio, parametros.meses_simulados),
+        comerciais = parametros.funcao_comerciais
+        self.expressao_comerciais.definir_texto(comerciais.expressao)
+        self.tabela_comerciais.definir(
+            comerciais.valores
+            or lista_comerciais_padrao(metadados.data_inicio, parametros.meses_simulados),
             metadados.data_inicio,
             parametros.meses_simulados,
         )
-        self.tipo_vendedores.definir_tipo(vendedores.tipo)
+        self.tipo_comerciais.definir_tipo(comerciais.tipo)
 
         aquisicao = parametros.funcao_aquisicao
         self.expressao_aquisicao.definir_texto(aquisicao.expressao)
@@ -495,27 +544,37 @@ class Formulario(QScrollArea):
         self.tipo_aquisicao.definir_tipo(aquisicao.tipo)
 
         self.taxa_churn_mensal.definir_fracao(parametros.taxa_churn_mensal)
-        self.consultorios_por_clinica_media.setValue(parametros.consultorios_por_clinica_media)
-        self.vagas_disponiveis_dia.setValue(parametros.vagas_disponiveis_dia)
-        self.dias_operacao_mes.setValue(parametros.dias_operacao_mes)
+        self.retainer_mensal_pleno.setValue(parametros.retainer_mensal_pleno)
+        self.taxa_setup.setValue(parametros.taxa_setup)
+        self.verba_midia_media.setValue(parametros.verba_midia_media)
+        self.fee_gestao_midia_percentual.definir_fracao(parametros.fee_gestao_midia_percentual)
 
-        curva = parametros.curva_maturacao
-        self.expressao_maturacao.definir_texto(curva.expressao)
-        self.tabela_maturacao.definir(curva.valores or lista_maturacao_padrao())
-        self.tipo_maturacao.definir_tipo(curva.tipo)
+        curva = parametros.curva_escopo
+        self.expressao_escopo.definir_texto(curva.expressao)
+        self.tabela_escopo.definir(curva.valores or lista_escopo_padrao())
+        self.tipo_escopo.definir_tipo(curva.tipo)
+        self.sazonalidade.definir(parametros.sazonalidade_midia)
 
-        self.sazonalidade.definir(parametros.sazonalidade_mensal)
-        self.valor_medio_atendimento.setValue(parametros.valor_medio_atendimento)
-        self.taxa_fixa_por_atendimento.setValue(parametros.taxa_fixa_por_atendimento)
-        self.taxa_percentual_por_atendimento.definir_fracao(parametros.taxa_percentual_por_atendimento)
-        self.valor_mensalidade.setValue(parametros.valor_mensalidade)
-        self.meses_trial_gratis.setValue(parametros.meses_trial_gratis)
-        self.percentual_conversao_pos_trial.definir_fracao(parametros.percentual_conversao_pos_trial)
-        self.custo_processamento_percentual.definir_fracao(parametros.custo_processamento_percentual)
+        self.meses_piloto.setValue(parametros.meses_piloto)
+        self.desconto_piloto_percentual.definir_fracao(parametros.desconto_piloto_percentual)
+        self.percentual_conversao_pos_piloto.definir_fracao(
+            parametros.percentual_conversao_pos_piloto
+        )
+
+        self.horas_base_cliente_mes.setValue(parametros.horas_base_cliente_mes)
+        self.horas_por_10mil_midia.setValue(parametros.horas_por_10mil_midia)
+        self.horas_produtivas_profissional_mes.setValue(
+            parametros.horas_produtivas_profissional_mes
+        )
+        self.utilizacao_alvo_percentual.definir_fracao(parametros.utilizacao_alvo_percentual)
+        self.custo_mensal_profissional.setValue(parametros.custo_mensal_profissional)
+
+        self.custo_terceiros_percentual.definir_fracao(parametros.custo_terceiros_percentual)
+        self.aliquota_impostos_percentual.definir_fracao(parametros.aliquota_impostos_percentual)
         self.taxa_inadimplencia.definir_fracao(parametros.taxa_inadimplencia)
-        self.comissao_vendedor_percentual.definir_fracao(parametros.comissao_vendedor_percentual)
+        self.comissao_comercial_percentual.definir_fracao(parametros.comissao_comercial_percentual)
 
-        custo = parametros.funcao_custo_operacional
+        custo = parametros.funcao_custo_estrutura
         self.expressao_custo.definir_texto(custo.expressao)
         self.tabela_custo.definir(
             custo.valores or lista_custo_padrao(metadados.data_inicio, parametros.meses_simulados),

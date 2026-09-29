@@ -24,38 +24,50 @@ from .graficos import PainelGraficos
 COLUNAS = (
     ("Mês", "mes"),
     ("Data", "data"),
-    ("Vend.", "vendedores"),
-    ("Clínicas ativas", "clinicas_ativas"),
-    ("Novas", "clinicas_novas"),
-    ("Churn", "clinicas_churned"),
-    ("Inadimplentes", "clinicas_inadimplentes"),
-    ("Consultórios", "consultorios_ativos"),
-    ("Ocupação", "ocupacao_media_percentual"),
-    ("Atendimentos", "atendimentos_efetivos"),
-    ("Volume", "volume_transacionado"),
-    ("Rec. transacional", "receita_transacional"),
-    ("Rec. mensalidade", "receita_mensalidade"),
+    ("Comerc.", "comerciais"),
+    ("Clientes ativos", "clientes_ativos"),
+    ("Novos", "clientes_novos"),
+    ("Churn", "clientes_churned"),
+    ("Inadimplentes", "clientes_inadimplentes"),
+    ("Verba gerenciada", "verba_midia_gerenciada"),
+    ("Horas", "horas_demandadas"),
+    ("Equipe", "equipe"),
+    ("Utilização", "utilizacao_equipe_percentual"),
+    ("Rec. retainer", "receita_retainer"),
+    ("Rec. mídia", "receita_midia"),
+    ("Rec. setup", "receita_setup"),
     ("Receita total", "receita_total"),
+    ("Custo equipe", "custo_equipe"),
+    ("Estrutura", "custo_estrutura"),
+    ("Terceiros", "custo_terceiros"),
+    ("Impostos", "impostos"),
     ("Inadimplência", "perda_inadimplencia"),
-    ("Comissão vend.", "comissao_vendedor"),
-    ("Por vendedor", "comissao_por_vendedor"),
+    ("Comissão", "comissao_comercial"),
+    ("Por comercial", "comissao_por_comercial"),
     ("Custos", "custos_total"),
     ("Resultado", "resultado_liquido"),
     ("Acumulado", "resultado_acumulado"),
 )
 
 _MOEDA = {
-    "volume_transacionado",
-    "receita_transacional",
-    "receita_mensalidade",
+    "verba_midia_gerenciada",
+    "receita_retainer",
+    "receita_midia",
+    "receita_setup",
     "receita_total",
+    "custo_equipe",
+    "custo_estrutura",
+    "custo_terceiros",
+    "impostos",
     "perda_inadimplencia",
-    "comissao_vendedor",
-    "comissao_por_vendedor",
+    "comissao_comercial",
+    "comissao_por_comercial",
     "custos_total",
     "resultado_liquido",
     "resultado_acumulado",
 }
+
+_INTEIRO = {"mes", "comerciais", "clientes_novos", "equipe"}
 
 
 class Cartao(QFrame):
@@ -102,20 +114,23 @@ class PainelResultados(QTabWidget):
 
     def _aba_resumo(self) -> QWidget:
         titulos = [
-            ("volume_transacionado_total", "Volume transacionado no período"),
+            ("verba_midia_total", "Verba de mídia gerenciada"),
             ("receita_total_periodo", "Receita total do período"),
             ("resultado_liquido_total", "Resultado líquido do período"),
+            ("margem_liquida_percentual", "Margem líquida"),
             ("payback_meses", "Payback"),
-            ("ticket_medio_realizado", "Ticket médio realizado"),
-            ("clinicas_ativas_final", "Clínicas ativas no fim"),
-            ("crescimento_medio_base_percentual", "Crescimento médio da base"),
+            ("receita_media_por_cliente_mes", "Receita média por cliente/mês"),
+            ("clientes_ativos_final", "Clientes ativos no fim"),
+            ("equipe_final", "Equipe no fim"),
+            ("utilizacao_media_percentual", "Utilização média da equipe"),
+            ("crescimento_medio_base_percentual", "Crescimento médio da carteira"),
             ("churn_acumulado_percentual", "Churn acumulado"),
-            ("comissao_por_vendedor_total", "Ganho por vendedor"),
-            ("ltv_medio", "LTV médio por clínica"),
+            ("ltv_medio", "LTV médio por cliente"),
+            ("custo_equipe_total", "Custo da equipe"),
             ("custos_total_periodo", "Custos do período"),
             ("perda_inadimplencia_total", "Perda por inadimplência"),
-            ("comissao_vendedor_total", "Comissão dos vendedores"),
-            ("atendimentos_efetivos_total", "Atendimentos efetivos"),
+            ("comissao_comercial_total", "Comissão comercial"),
+            ("comissao_por_comercial_total", "Ganho por comercial"),
         ]
         conteudo = QWidget()
         coluna = QVBoxLayout(conteudo)
@@ -172,11 +187,11 @@ class PainelResultados(QTabWidget):
         for linha, mes in enumerate(series):
             for coluna, (_titulo, campo) in enumerate(COLUNAS):
                 valor = getattr(mes, campo)
-                if campo == "mes":
-                    texto = str(valor)
-                elif campo == "data":
+                if campo == "data":
                     texto = mes_extenso(valor)
-                elif campo == "ocupacao_media_percentual":
+                elif campo in _INTEIRO:
+                    texto = str(int(valor))
+                elif campo == "utilizacao_equipe_percentual":
                     texto = percentual(valor)
                 elif campo in _MOEDA:
                     texto = moeda(valor, 0)
@@ -194,55 +209,65 @@ class PainelResultados(QTabWidget):
         kpis = resultados.kpis_agregados
         total_meses = len(resultados.series_mensais)
 
-        self.cartoes["volume_transacionado_total"].definir(
-            moeda_compacta(kpis.volume_transacionado_total), f"em {total_meses} meses"
+        self.cartoes["verba_midia_total"].definir(
+            moeda_compacta(kpis.verba_midia_total), f"em {total_meses} meses · não é receita"
         )
         self.cartoes["receita_total_periodo"].definir(
             moeda_compacta(kpis.receita_total_periodo),
-            f"transacional {moeda_compacta(kpis.receita_transacional_total)} · "
-            f"mensalidade {moeda_compacta(kpis.receita_mensalidade_total)}",
+            f"retainer {moeda_compacta(kpis.receita_retainer_total)} · "
+            f"mídia {moeda_compacta(kpis.receita_midia_total)} · "
+            f"setup {moeda_compacta(kpis.receita_setup_total)}",
         )
         self.cartoes["resultado_liquido_total"].definir(
             moeda_compacta(kpis.resultado_liquido_total), "receita − custos"
+        )
+        self.cartoes["margem_liquida_percentual"].definir(
+            percentual(kpis.margem_liquida_percentual), "resultado ÷ receita"
         )
         self.cartoes["payback_meses"].definir(
             f"mês {kpis.payback_meses}" if kpis.payback_meses else "não atingido",
             "1º mês com resultado acumulado positivo",
         )
-        self.cartoes["ticket_medio_realizado"].definir(
-            moeda(kpis.ticket_medio_realizado), "volume ÷ atendimentos efetivos"
+        self.cartoes["receita_media_por_cliente_mes"].definir(
+            moeda(kpis.receita_media_por_cliente_mes, 0), "receita ÷ clientes ativos/mês"
         )
-        self.cartoes["clinicas_ativas_final"].definir(
-            numero(kpis.clinicas_ativas_final, 0),
-            f"{numero(kpis.clinicas_adquiridas_total, 0)} adquiridas no período",
+        self.cartoes["clientes_ativos_final"].definir(
+            numero(kpis.clientes_ativos_final, 0),
+            f"{numero(kpis.clientes_adquiridos_total, 0)} conquistados no período",
+        )
+        self.cartoes["equipe_final"].definir(
+            numero(kpis.equipe_final, 0), "profissionais no último mês"
+        )
+        self.cartoes["utilizacao_media_percentual"].definir(
+            percentual(kpis.utilizacao_media_percentual), "horas demandadas ÷ horas produtivas"
         )
         self.cartoes["crescimento_medio_base_percentual"].definir(
             percentual(kpis.crescimento_medio_base_percentual), "média mensal composta"
         )
         self.cartoes["churn_acumulado_percentual"].definir(
             percentual(kpis.churn_acumulado_percentual),
-            f"{numero(kpis.clinicas_churned_total, 0)} clínicas perdidas",
-        )
-        self.cartoes["comissao_por_vendedor_total"].definir(
-            moeda_compacta(kpis.comissao_por_vendedor_total),
-            "quem ficou o período inteiro",
+            f"{numero(kpis.clientes_churned_total, 0)} clientes perdidos",
         )
         self.cartoes["ltv_medio"].definir(
             moeda_compacta(kpis.ltv_medio),
-            "receita/clínica/mês × vida média (1 ÷ [churn + inadimplência])",
+            "receita/cliente/mês × vida média (1 ÷ [churn + inadimplência])",
+        )
+        self.cartoes["custo_equipe_total"].definir(
+            moeda_compacta(kpis.custo_equipe_total), "maior custo da agência"
         )
         self.cartoes["custos_total_periodo"].definir(
             moeda_compacta(kpis.custos_total_periodo),
-            "operacional + processamento + inadimplência + comissão",
-        )
-        self.cartoes["comissao_vendedor_total"].definir(
-            moeda_compacta(kpis.comissao_vendedor_total),
-            "sobre a receita recebida",
+            "equipe + estrutura + terceiros + impostos + inadimplência + comissão",
         )
         self.cartoes["perda_inadimplencia_total"].definir(
             moeda_compacta(kpis.perda_inadimplencia_total),
-            f"{numero(kpis.clinicas_inadimplentes_total, 0)} clínicas perderam o acesso",
+            f"{numero(kpis.clientes_inadimplentes_total, 0)} contratos encerrados",
         )
-        self.cartoes["atendimentos_efetivos_total"].definir(
-            numero(kpis.atendimentos_efetivos_total, 0), "no período"
+        self.cartoes["comissao_comercial_total"].definir(
+            moeda_compacta(kpis.comissao_comercial_total),
+            "sobre a receita recebida",
+        )
+        self.cartoes["comissao_por_comercial_total"].definir(
+            moeda_compacta(kpis.comissao_por_comercial_total),
+            "quem ficou o período inteiro",
         )

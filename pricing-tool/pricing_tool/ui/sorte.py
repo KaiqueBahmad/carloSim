@@ -44,7 +44,7 @@ class DialogoMeta(QDialog):
         coluna.addWidget(
             RotuloAjuda(
                 f"Os parâmetros ficam fixos. Cada rodada simula os {meses} meses de novo, "
-                "sorteando clínica por clínica quem dá churn, quem converte no fim do trial e "
+                "sorteando cliente por cliente quem dá churn, quem converte no fim do piloto e "
                 "quem fica inadimplente. A rodada só conta como acerto se bater as "
                 "<b>duas</b> metas.<br>"
                 f"O modo determinístico dá <b>{moeda(deterministico, 0)}</b> acumulado e "

@@ -1,7 +1,7 @@
 [project]
 name = "pricing-tool"
 version = "0.1.0"
-description = "Simulador de retorno para uma plataforma fictícia de agendamento veterinário"
+description = "Simulador de retorno para uma agência de marketing fictícia"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

@@ -1,4 +1,4 @@
-"""Tabelas de entrada das listas de aquisicao, custo e maturacao."""
+"""Tabelas de entrada das listas de aquisicao, comerciais, custo e escopo."""
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import calendario
-from ..parametros import PontoAquisicao, PontoCusto, PontoMaturacao, PontoVendedores
+from ..parametros import PontoAquisicao, PontoComerciais, PontoCusto, PontoEscopo
 from .campos import CampoInteiro, CampoMoeda, CampoPercentual, RotuloAjuda
 from .formato import mes_extenso
 
@@ -129,37 +129,37 @@ class TabelaPorMes(QWidget):
 
 class TabelaAquisicao(TabelaPorMes):
     def __init__(self):
-        super().__init__("Clínicas adquiridas", "Preencher todos os meses com")
+        super().__init__("Clientes adquiridos", "Preencher todos os meses com")
         self.replicar.setValue(2)
 
     def _criar_campo(self):
         return CampoInteiro(0, 10_000)
 
     def _ponto(self, mes: str, valor):
-        return PontoAquisicao(mes=mes, clinicas_adquiridas=int(valor))
+        return PontoAquisicao(mes=mes, clientes_adquiridos=int(valor))
 
     def _valor(self, ponto):
-        return ponto.clinicas_adquiridas
+        return ponto.clientes_adquiridos
 
 
-class TabelaVendedores(TabelaPorMes):
+class TabelaComerciais(TabelaPorMes):
     def __init__(self):
-        super().__init__("Vendedores ativos", "Preencher todos os meses com")
+        super().__init__("Comerciais ativos", "Preencher todos os meses com")
         self.replicar.setValue(2)
 
     def _criar_campo(self):
         return CampoInteiro(0, 1_000)
 
     def _ponto(self, mes: str, valor):
-        return PontoVendedores(mes=mes, vendedores=int(valor))
+        return PontoComerciais(mes=mes, comerciais=int(valor))
 
     def _valor(self, ponto):
-        return ponto.vendedores
+        return ponto.comerciais
 
 
 class TabelaCusto(TabelaPorMes):
     def __init__(self):
-        super().__init__("Custo operacional", "Preencher todos os meses com")
+        super().__init__("Custo de estrutura", "Preencher todos os meses com")
         self.replicar.setValue(4_500.0)
 
     def _criar_campo(self):
@@ -172,15 +172,15 @@ class TabelaCusto(TabelaPorMes):
         return ponto.custo
 
 
-class TabelaMaturacao(QWidget):
-    """Pontos 1..k sem lacunas; o ultimo vale como ocupacao de regime."""
+class TabelaEscopo(QWidget):
+    """Pontos 1..k sem lacunas; o ultimo vale como escopo de regime."""
 
     alterado = Signal()
 
     def __init__(self):
         super().__init__()
         self._silencioso = False
-        self.tabela = _tabela(["Mês desde a ativação", "Ocupação"])
+        self.tabela = _tabela(["Mês desde a ativação", "Escopo"])
         self.tabela.setMinimumHeight(180)
 
         adicionar = QPushButton("+ ponto")
@@ -199,14 +199,14 @@ class TabelaMaturacao(QWidget):
         layout.setSpacing(6)
         layout.addWidget(self.tabela)
         layout.addLayout(rodape)
-        layout.addWidget(RotuloAjuda("O último ponto vale como ocupação de regime, mantida nos meses seguintes."))
+        layout.addWidget(RotuloAjuda("O último ponto vale como escopo de regime, mantido nos meses seguintes."))
 
-    def _inserir(self, ocupacao: float) -> None:
+    def _inserir(self, escopo: float) -> None:
         linha = self.tabela.rowCount()
         self.tabela.insertRow(linha)
         self.tabela.setItem(linha, 0, _rotulo(f"Mês {linha + 1}"))
         campo = CampoPercentual(casas=1, passo=1.0)
-        campo.definir_fracao(ocupacao)
+        campo.definir_fracao(escopo)
         campo.valueChanged.connect(self._emitir)
         self.tabela.setCellWidget(linha, 1, campo)
 
@@ -215,7 +215,7 @@ class TabelaMaturacao(QWidget):
             self.alterado.emit()
 
     def _adicionar(self) -> None:
-        ultimo = self.valores()[-1].ocupacao_percentual if self.tabela.rowCount() else 0.05
+        ultimo = self.valores()[-1].escopo_percentual if self.tabela.rowCount() else 0.05
         self._inserir(ultimo)
         self.alterado.emit()
 
@@ -224,21 +224,21 @@ class TabelaMaturacao(QWidget):
             self.tabela.removeRow(self.tabela.rowCount() - 1)
             self.alterado.emit()
 
-    def valores(self) -> list[PontoMaturacao]:
+    def valores(self) -> list[PontoEscopo]:
         pontos = []
         for linha in range(self.tabela.rowCount()):
             campo = self.tabela.cellWidget(linha, 1)
             if campo:
                 pontos.append(
-                    PontoMaturacao(mes_desde_ativacao=linha + 1, ocupacao_percentual=campo.fracao())
+                    PontoEscopo(mes_desde_ativacao=linha + 1, escopo_percentual=campo.fracao())
                 )
         return pontos
 
-    def definir(self, valores: list[PontoMaturacao]) -> None:
+    def definir(self, valores: list[PontoEscopo]) -> None:
         self._silencioso = True
         self.tabela.setRowCount(0)
         for ponto in valores:
-            self._inserir(ponto.ocupacao_percentual)
+            self._inserir(ponto.escopo_percentual)
         if not self.tabela.rowCount():
             self._inserir(0.05)
         self._silencioso = False
